@@ -6625,6 +6625,18 @@ function Cooldowns:CreateTrackerPanel(trackerKey)
             controls.labelOffsetYSlider:SetValue(labelOffsetY or 0)
             controls.labelOffsetYValue:SetText(tostring(labelOffsetY or 0))
             
+
+            -- Radial swipe settings (state-independent)
+            local radialSize = CooldownHighlights.GetRadialSwipeSize and CooldownHighlights:GetRadialSwipeSize(customTrackerKey, slotIndex)
+            local showRadialWhenReady = CooldownHighlights.GetShowRadialWhenReady and CooldownHighlights:GetShowRadialWhenReady(customTrackerKey, slotIndex)
+
+            if radialSize then
+                controls.radialSizeInput:SetText(tostring(radialSize))
+            else
+                controls.radialSizeInput:SetText("64")
+            end
+            controls.showRadialWhenReadyCheck:SetChecked(showRadialWhenReady or false)
+
             -- Initialize aspect dropdown
             UIDropDownMenu_Initialize(controls.aspectDropdown, function(self, level)
                 for _, opt in ipairs(ASPECT_OPTIONS) do

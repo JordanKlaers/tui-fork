@@ -62,6 +62,7 @@ Modules\Profiles\ProfilesUI.lua
 Modules\Cooldowns\Cooldowns.lua
 Modules\Cooldowns\CooldownClones.lua
 Modules\Cooldowns\BuffHighlights.lua
+Modules\Cooldowns\RadialSwipe.lua
 Modules\Cooldowns\CooldownHighlights.lua
 Modules\Cooldowns\SpellbookHelper.lua
 Modules\Chat\Chat.lua
