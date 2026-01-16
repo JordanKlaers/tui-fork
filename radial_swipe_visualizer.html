@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radial Swipe Visualizer</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            margin: 0;
+        }
+        
+        h1 {
+            margin: 20px 0;
+            color: #00ccff;
+        }
+        
+        #container {
+            display: flex;
+            gap: 40px;
+            align-items: flex-start;
+        }
+        
+        #canvas-container {
+            background: #2a2a2a;
+            border: 2px solid #444;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        #controls {
+            background: #2a2a2a;
+            border: 2px solid #444;
+            border-radius: 8px;
+            padding: 20px;
+            width: 300px;
+        }
+        
+        .slider-container {
+            margin: 20px 0;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: bold;
+            color: #00ccff;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #444;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #00ccff;
+            cursor: pointer;
+        }
+        
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #00ccff;
+            cursor: pointer;
+            border: none;
+        }
+        
+        #angle-display {
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #00ff88;
+            margin: 10px 0;
+        }
+        
+        .info-box {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border-left: 4px solid #00ccff;
+        }
+        
+        .texture-info {
+            margin: 10px 0;
+            padding: 10px;
+            background: #333;
+            border-radius: 4px;
+        }
+        
+        .texture-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .tex1 { color: #ff4444; }
+        .tex2 { color: #44ff44; }
+        .tex3 { color: #4444ff; }
+        
+        .corner-coords {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            line-height: 1.4;
+            color: #aaa;
+        }
+        
+        svg {
+            border: 1px solid #555;
+            background: #0a0a0a;
+        }
+        
+        .grid-line {
+            stroke: #333;
+            stroke-width: 0.5;
+        }
+        
+        .center-point {
+            fill: #ffff00;
+            stroke: #ffffff;
+            stroke-width: 2;
+        }
+        
+        .corner-point {
+            stroke-width: 2;
+        }
+        
+        .corner-label {
+            fill: #ffffff;
+            font-size: 12px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>🌀 Radial Swipe Texture System Visualizer</h1>
+    
+    <div id="container">
+        <div id="canvas-container">
+            <svg id="canvas" width="500" height="500" viewBox="0 0 500 500"></svg>
+        </div>
+        
+        <div id="controls">
+            <div class="slider-container">
+                <label for="angle-slider">Progress Angle</label>
+                <input type="range" id="angle-slider" min="0" max="360" value="0" step="1">
+                <div id="angle-display">0°</div>
+            </div>
+            
+            <div class="info-box">
+                <div id="texture-count">Active Textures: 0</div>
+                <div style="margin-top: 10px;">
+                    <div><strong>0-135°:</strong> Single texture</div>
+                    <div><strong>135-315°:</strong> Two textures</div>
+                    <div><strong>315-360°:</strong> Three textures</div>
+                </div>
+            </div>
+            
+            <div id="texture-details"></div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const slider = document.getElementById('angle-slider');
+        const angleDisplay = document.getElementById('angle-display');
+        const textureCount = document.getElementById('texture-count');
+        const textureDetails = document.getElementById('texture-details');
+        
+        const SCALE = 400; // Scale factor for visualization
+        const OFFSET_X = 50;
+        const OFFSET_Y = 50;
+        
+        // Convert texture coordinates (0-1) to canvas coordinates
+        function toCanvasX(x) {
+            return x * SCALE + OFFSET_X;
+        }
+        
+        function toCanvasY(y) {
+            return y * SCALE + OFFSET_Y;
+        }
+        
+        // Calculate angle to coordinate (from RadialSwipe.lua)
+        function angleToCoord(angle) {
+            angle = angle % 360;
+            
+            const exactAngles = [
+                [0.5, 0],    // 0°
+                [1, 0],      // 45°
+                [1, 0.5],    // 90°
+                [1, 1],      // 135°
+                [0.5, 1],    // 180°
+                [0, 1],      // 225°
+                [0, 0.5],    // 270°
+                [0, 0]       // 315°
+            ];
+            
+            if (angle % 45 === 0) {
+                const index = Math.floor(angle / 45);
+                return exactAngles[index];
+            }
+            
+            const rad = angle * Math.PI / 180;
+            
+            if (angle < 45) {
+                return [0.5 + Math.tan(rad) / 2, 0];
+            } else if (angle < 135) {
+                return [1, 0.5 + Math.tan((angle - 90) * Math.PI / 180) / 2];
+            } else if (angle < 225) {
+                return [0.5 - Math.tan(rad) / 2, 1];
+            } else if (angle < 315) {
+                return [0, 0.5 - Math.tan((angle - 90) * Math.PI / 180) / 2];
+            } else {
+                return [0.5 + Math.tan(rad) / 2, 0];
+            }
+        }
+        
+        // Get corner assignments based on angle
+        function getCornerAssignments(angle1, angle2) {
+            const pointOrder = ["LL", "UL", "UR", "LR", "LL", "UL", "UR", "LR", "LL", "UL", "UR", "LR"];
+            const index = Math.floor((angle1 + 45) / 90);
+            
+            const middleCorner = pointOrder[index];
+            const startCorner = pointOrder[index + 1];
+            const endCorner1 = pointOrder[index + 2];
+            const endCorner2 = pointOrder[index + 3];
+            
+            const edge1 = Math.floor((angle1 - 45) / 90);
+            const edge2 = Math.floor((angle2 - 45) / 90);
+            
+            const coords = {
+                UL: [0, 0],
+                LL: [0, 1],
+                UR: [1, 0],
+                LR: [1, 1]
+            };
+            
+            // Set middle corner to center
+            coords[middleCorner] = [0.5, 0.5];
+            
+            // Set start corner
+            coords[startCorner] = angleToCoord(angle1);
+            
+            // Set end corners
+            if (edge1 === edge2) {
+                coords[endCorner1] = angleToCoord(angle2);
+            } else {
+                const defaultCoords = {
+                    UL: [0, 0],
+                    LL: [0, 1],
+                    UR: [1, 0],
+                    LR: [1, 1]
+                };
+                coords[endCorner1] = defaultCoords[endCorner1];
+            }
+            
+            coords[endCorner2] = angleToCoord(angle2);
+            
+            return coords;
+        }
+        
+        // Draw grid
+        function drawGrid() {
+            const gridGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            gridGroup.id = 'grid';
+            
+            // Vertical and horizontal lines
+            for (let i = 0; i <= 4; i++) {
+                const x = toCanvasX(i * 0.25);
+                const y = toCanvasY(i * 0.25);
+                
+                // Vertical line
+                const vLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                vLine.setAttribute('x1', x);
+                vLine.setAttribute('y1', toCanvasY(0));
+                vLine.setAttribute('x2', x);
+                vLine.setAttribute('y2', toCanvasY(1));
+                vLine.setAttribute('class', 'grid-line');
+                gridGroup.appendChild(vLine);
+                
+                // Horizontal line
+                const hLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                hLine.setAttribute('x1', toCanvasX(0));
+                hLine.setAttribute('y1', y);
+                hLine.setAttribute('x2', toCanvasX(1));
+                hLine.setAttribute('y2', y);
+                hLine.setAttribute('class', 'grid-line');
+                gridGroup.appendChild(hLine);
+            }
+            
+            canvas.appendChild(gridGroup);
+        }
+        
+        // Draw a texture quad
+        function drawTexture(coords, color, label, fillOpacity = 0.3) {
+            const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            
+            // Draw filled polygon
+            const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+            const points = `${toCanvasX(coords.UL[0])},${toCanvasY(coords.UL[1])} ` +
+                          `${toCanvasX(coords.LL[0])},${toCanvasY(coords.LL[1])} ` +
+                          `${toCanvasX(coords.LR[0])},${toCanvasY(coords.LR[1])} ` +
+                          `${toCanvasX(coords.UR[0])},${toCanvasY(coords.UR[1])}`;
+            polygon.setAttribute('points', points);
+            polygon.setAttribute('fill', color);
+            polygon.setAttribute('fill-opacity', fillOpacity);
+            polygon.setAttribute('stroke', color);
+            polygon.setAttribute('stroke-width', '2');
+            group.appendChild(polygon);
+            
+            // Draw corner points
+            ['UL', 'LL', 'UR', 'LR'].forEach(corner => {
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('cx', toCanvasX(coords[corner][0]));
+                circle.setAttribute('cy', toCanvasY(coords[corner][1]));
+                circle.setAttribute('r', '5');
+                circle.setAttribute('fill', color);
+                circle.setAttribute('class', 'corner-point');
+                circle.setAttribute('stroke', '#ffffff');
+                group.appendChild(circle);
+                
+                // Corner labels
+                const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                text.setAttribute('x', toCanvasX(coords[corner][0]) + 10);
+                text.setAttribute('y', toCanvasY(coords[corner][1]) - 10);
+                text.setAttribute('class', 'corner-label');
+                text.textContent = `${corner}`;
+                group.appendChild(text);
+            });
+            
+            return group;
+        }
+        
+        // Update visualization
+        function update() {
+            const angle = parseInt(slider.value);
+            angleDisplay.textContent = `${angle}°`;
+            
+            // Clear previous drawings
+            const oldTextures = canvas.querySelectorAll('.texture-group');
+            oldTextures.forEach(t => t.remove());
+            
+            const oldCenter = canvas.getElementById('center-point');
+            if (oldCenter) oldCenter.remove();
+            
+            // Calculate which textures to show
+            const angle1 = 0;
+            const angle2 = angle;
+            
+            let numTextures = 0;
+            let details = '';
+            
+            if (angle === 0) {
+                numTextures = 0;
+                details = '<div class="texture-info">No progress - all textures hidden</div>';
+            } else if (angle >= 360) {
+                numTextures = 1;
+                const coords = { UL: [0, 0], LL: [0, 1], UR: [1, 0], LR: [1, 1] };
+                const group = drawTexture(coords, '#ff4444', 'Texture 1', 0.5);
+                group.setAttribute('class', 'texture-group');
+                canvas.appendChild(group);
+                details = '<div class="texture-info"><div class="texture-label tex1">Texture 1 (Full)</div>' +
+                         '<div class="corner-coords">All corners at default positions</div></div>';
+            } else {
+                const index1 = Math.floor((angle1 + 45) / 90);
+                const index2 = Math.floor((angle2 + 45) / 90);
+                
+                if (index1 + 1 >= index2) {
+                    // Single texture
+                    numTextures = 1;
+                    const coords = getCornerAssignments(angle1, angle2);
+                    const group = drawTexture(coords, '#ff4444', 'Texture 1');
+                    group.setAttribute('class', 'texture-group');
+                    canvas.appendChild(group);
+                    
+                    details = `<div class="texture-info"><div class="texture-label tex1">Texture 1 (${angle1}° - ${angle2}°)</div>` +
+                             `<div class="corner-coords">` +
+                             `UL: (${coords.UL[0].toFixed(2)}, ${coords.UL[1].toFixed(2)})<br>` +
+                             `LL: (${coords.LL[0].toFixed(2)}, ${coords.LL[1].toFixed(2)})<br>` +
+                             `UR: (${coords.UR[0].toFixed(2)}, ${coords.UR[1].toFixed(2)})<br>` +
+                             `LR: (${coords.LR[0].toFixed(2)}, ${coords.LR[1].toFixed(2)})` +
+                             `</div></div>`;
+                             
+                } else if (index1 + 3 >= index2) {
+                    // Two textures
+                    numTextures = 2;
+                    const firstEndAngle = (index1 + 1) * 90 + 45;
+                    
+                    const coords1 = getCornerAssignments(angle1, firstEndAngle);
+                    const group1 = drawTexture(coords1, '#ff4444', 'Texture 1', 0.4);
+                    group1.setAttribute('class', 'texture-group');
+                    canvas.appendChild(group1);
+                    
+                    const coords2 = getCornerAssignments(firstEndAngle, angle2);
+                    const group2 = drawTexture(coords2, '#44ff44', 'Texture 2', 0.4);
+                    group2.setAttribute('class', 'texture-group');
+                    canvas.appendChild(group2);
+                    
+                    details = `<div class="texture-info"><div class="texture-label tex1">Texture 1 (${angle1}° - ${firstEndAngle}°)</div></div>` +
+                             `<div class="texture-info"><div class="texture-label tex2">Texture 2 (${firstEndAngle}° - ${angle2}°)</div></div>`;
+                             
+                } else {
+                    // Three textures
+                    numTextures = 3;
+                    const firstEndAngle = (index1 + 1) * 90 + 45;
+                    const secondEndAngle = firstEndAngle + 180;
+                    
+                    const coords1 = getCornerAssignments(angle1, firstEndAngle);
+                    const group1 = drawTexture(coords1, '#ff4444', 'Texture 1', 0.3);
+                    group1.setAttribute('class', 'texture-group');
+                    canvas.appendChild(group1);
+                    
+                    const coords2 = getCornerAssignments(firstEndAngle, secondEndAngle);
+                    const group2 = drawTexture(coords2, '#44ff44', 'Texture 2', 0.3);
+                    group2.setAttribute('class', 'texture-group');
+                    canvas.appendChild(group2);
+                    
+                    const coords3 = getCornerAssignments(secondEndAngle, angle2);
+                    const group3 = drawTexture(coords3, '#4444ff', 'Texture 3', 0.3);
+                    group3.setAttribute('class', 'texture-group');
+                    canvas.appendChild(group3);
+                    
+                    details = `<div class="texture-info"><div class="texture-label tex1">Texture 1 (${angle1}° - ${firstEndAngle}°)</div></div>` +
+                             `<div class="texture-info"><div class="texture-label tex2">Texture 2 (${firstEndAngle}° - ${secondEndAngle}°)</div></div>` +
+                             `<div class="texture-info"><div class="texture-label tex3">Texture 3 (${secondEndAngle}° - ${angle2}°)</div></div>`;
+                }
+            }
+            
+            // Draw center point
+            const centerPoint = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            centerPoint.setAttribute('id', 'center-point');
+            centerPoint.setAttribute('cx', toCanvasX(0.5));
+            centerPoint.setAttribute('cy', toCanvasY(0.5));
+            centerPoint.setAttribute('r', '6');
+            centerPoint.setAttribute('class', 'center-point');
+            canvas.appendChild(centerPoint);
+            
+            // Draw center label
+            const centerLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            centerLabel.setAttribute('x', toCanvasX(0.5) + 12);
+            centerLabel.setAttribute('y', toCanvasY(0.5) + 5);
+            centerLabel.setAttribute('class', 'corner-label');
+            centerLabel.setAttribute('fill', '#ffff00');
+            centerLabel.textContent = 'CENTER';
+            canvas.appendChild(centerLabel);
+            
+            textureCount.textContent = `Active Textures: ${numTextures}`;
+            textureDetails.innerHTML = details;
+        }
+        
+        // Initialize
+        drawGrid();
+        update();
+        
+        slider.addEventListener('input', update);
+    </script>
+</body>
+</html>

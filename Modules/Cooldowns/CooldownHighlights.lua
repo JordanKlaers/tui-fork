@@ -1039,14 +1039,14 @@ local function CreateHighlightFrame(trackerKey, slotIndex)
     frame.icon:SetPoint("BOTTOMRIGHT", -2, 2)
     frame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     
-    -- Create radial swipe for hexagonal cooldown animation
+    -- Create radial swipe for cooldown animation (matches DebugTest configuration)
     frame.radialSwipe = RadialSwipe:CreateSpinner(frame)
-    frame.radialSwipe:SetTexture("Interface\\monk\\hex-30")  -- Hexagon outline texture
-    frame.radialSwipe:SetColor(1, 1, 1, 1)  -- Black semi-transparent overlay
-    frame.radialSwipe:SetBlendMode("BLEND")  -- Standard blending
-    frame.radialSwipe:SetSize(size, size)
+    frame.radialSwipe:SetTexture("Interface\\monk\\hex-30")  -- Hexagon texture
+    frame.radialSwipe:SetColor(1, 1, 1, 1)  -- White overlay
+    frame.radialSwipe:SetBlendMode("BLEND")
+    frame.radialSwipe:SetSize(size, size)  -- Match frame size, not hardcoded 200x200
     frame.radialSwipe:Hide()  -- Hidden when no cooldown
-    
+
     -- Store cooldown animation state
     frame.cooldownStart = nil
     frame.cooldownDuration = nil
@@ -1105,17 +1105,16 @@ local function CreateHighlightFrame(trackerKey, slotIndex)
         
         local currentTime = GetTime()
         local elapsed = currentTime - self.cooldownStart
-        local progress = elapsed / self.cooldownDuration
+        local progress = elapsed / self.cooldownDuration  -- 0 to 1 (empty to full - FILLS UP during cooldown)
         
         if progress >= 1 then
-            -- Cooldown finished
+            -- Cooldown finished (fully filled)
             self.radialSwipe:Hide()
             self.cooldownStart = nil
             self.cooldownDuration = nil
         else
-            -- Update swipe progress (counter-clockwise from 0 to 360, showing remaining cooldown)
-            -- Progress 0 = full coverage, Progress 1 = no coverage
-            self.radialSwipe:SetProgressValueInverse(progress, 0, 360)
+            -- Update swipe progress - fills clockwise from top as cooldown progresses
+            self.radialSwipe:SetProgressValue(progress, 0, 360)
         end
     end)
     

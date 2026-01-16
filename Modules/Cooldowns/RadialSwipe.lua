@@ -1,154 +1,237 @@
---[[
-  Standalone Radial Swipe Implementation
-  Extracted from WeakAuras for use in other addons
-  
-  This provides the core functionality for circular/radial progress animations
-  similar to cooldown swipes on spell icons.
-]]
+
 
 local addonName, TweaksUI = ...
-local RadialSwipe = {}
 
+local RadialSwipe = {}
 -- Register in TweaksUI namespace
 TweaksUI.RadialSwipe = RadialSwipe
 
 -- =====================================================
--- TEXTURE COORDINATE UTILITIES
+-- VERTEX CONSTANTS
+-- =====================================================
+
+local UPPER_LEFT_VERTEX = 1
+local LOWER_LEFT_VERTEX = 2
+local UPPER_RIGHT_VERTEX = 3
+local LOWER_RIGHT_VERTEX = 4
+
+-- =====================================================
+-- HELPER FUNCTIONS
+-- =====================================================
+
+local floor = math.floor
+local cos = math.cos
+local sin = math.sin
+local tan = math.tan
+local rad = math.rad
+
+-- =====================================================
+-- TEXTURE COORDINATE SYSTEM
 -- =====================================================
 
 local TextureCoords = {}
 TextureCoords.__index = TextureCoords
 
--- Creates a texture coordinate handler for a texture
+-- Default texture coordinate positions (corners of a square: 0,0 to 1,1)
+local defaultTexCoord = {
+  ULx = 0, ULy = 0,  -- Upper Left
+  LLx = 0, LLy = 1,  -- Lower Left
+  URx = 1, URy = 0,  -- Upper Right
+  LRx = 1, LRy = 1,  -- Lower Right
+}
+
+-- Pre-calculated coordinates for exact 45-degree angles
+local exactAngles = {
+  {0.5, 0},    -- 0°
+  {1, 0},      -- 45°
+  {1, 0.5},    -- 90°
+  {1, 1},      -- 135°
+  {0.5, 1},    -- 180°
+  {0, 1},      -- 225°
+  {0, 0.5},    -- 270°
+  {0, 0}       -- 315°
+}
+
+-- Pattern for which corners to use based on starting angle
+-- This cycles through the corners in a specific order for proper wedge formation
+local pointOrder = { 
+  "LL", "UL", "UR", "LR", 
+  "LL", "UL", "UR", "LR", 
+  "LL", "UL", "UR", "LR" 
+}
+
+-- Convert angle (in degrees) to texture coordinate (0-1 range)
+local function angleToCoord(angle)
+  angle = angle % 360
+
+  -- Use exact values for 45-degree increments (more precise)
+  if (angle % 45 == 0) then
+    local index = floor(angle / 45) + 1
+    return exactAngles[index][1], exactAngles[index][2]
+  end
+
+  -- Calculate coordinate on the edge of the texture square
+  -- Uses tangent to find where the angle ray intersects the square edges
+  if (angle < 45) then
+    return 0.5 + tan(rad(angle)) / 2, 0
+  elseif (angle < 135) then
+    return 1, 0.5 + tan(rad(angle - 90)) / 2
+  elseif (angle < 225) then
+    return 0.5 - tan(rad(angle)) / 2, 1
+  elseif (angle < 315) then
+    return 0, 0.5 - tan(rad(angle - 90)) / 2
+  elseif (angle < 360) then
+    return 0.5 + tan(rad(angle)) / 2, 0
+  end
+end
+
+-- Transform a texture coordinate point (rotation, scaling, mirroring)
+local function TransformPoint(x, y, scalex, scaley, texRotation, mirror_h, mirror_v)
+  -- Center the coordinate
+  x = x - 0.5
+  y = y - 0.5
+
+  -- Apply user scaling (removed sqrt(2) scaling that distorts textures)
+  x = x / scalex
+  y = y / scaley
+
+  -- Apply mirroring
+  if mirror_h then
+    x = -x
+  end
+  if mirror_v then
+    y = -y
+  end
+
+  -- Apply rotation
+  local cos_rotation = cos(texRotation)
+  local sin_rotation = sin(texRotation)
+  x, y = cos_rotation * x - sin_rotation * y, sin_rotation * x + cos_rotation * y
+
+  -- Move back from center
+  x = x + 0.5
+  y = y + 0.5
+
+  return x, y
+end
+
+-- Create a new texture coordinate handler
 function TextureCoords:New(texture)
   local coords = setmetatable({}, TextureCoords)
   coords.texture = texture
+  
+  -- Texture coordinates (0-1 range, where texture content is mapped)
   coords.ULx, coords.ULy = 0, 0
   coords.LLx, coords.LLy = 0, 1
   coords.URx, coords.URy = 1, 0
   coords.LRx, coords.LRy = 1, 1
+  
+  -- Vertex offsets (pixel offsets for physically moving corners)
+  coords.ULvx, coords.ULvy = 0, 0
+  coords.LLvx, coords.LLvy = 0, 0
+  coords.URvx, coords.URvy = 0, 0
+  coords.LRvx, coords.LRvy = 0, 0
+  
   return coords
 end
 
--- Apply the current coordinates to the texture
+-- Move a corner to a specific texture coordinate position
+function TextureCoords:MoveCorner(width, height, corner, x, y)
+  -- Calculate how far this corner moved from its default position
+  local rx = defaultTexCoord[corner .. "x"] - x
+  local ry = defaultTexCoord[corner .. "y"] - y
+  
+  -- Convert to pixel offsets (this physically pulls the corner)
+  self[corner .. "vx"] = -rx * width
+  self[corner .. "vy"] = ry * height
+
+  -- Store the texture coordinate
+  self[corner .. "x"] = x
+  self[corner .. "y"] = y
+end
+
+-- Apply the coordinates and show the texture
 function TextureCoords:Show()
-  self.texture:SetTexCoord(self.ULx, self.ULy, self.LLx, self.LLy,
-                           self.URx, self.URy, self.LRx, self.LRy)
+  self:Apply()
   self.texture:Show()
 end
 
+-- Hide the texture
 function TextureCoords:Hide()
   self.texture:Hide()
 end
 
--- Set coordinates to show full texture
+-- Apply vertex offsets and texture coordinates to the WoW texture object
+function TextureCoords:Apply()
+  -- Move the physical vertices (creates the wedge shape)
+  self.texture:SetVertexOffset(UPPER_RIGHT_VERTEX, self.URvx, self.URvy)
+  self.texture:SetVertexOffset(UPPER_LEFT_VERTEX, self.ULvx, self.ULvy)
+  self.texture:SetVertexOffset(LOWER_RIGHT_VERTEX, self.LRvx, self.LRvy)
+  self.texture:SetVertexOffset(LOWER_LEFT_VERTEX, self.LLvx, self.LLvy)
+
+  -- Map texture coordinates to those vertices
+  self.texture:SetTexCoord(self.ULx, self.ULy, self.LLx, self.LLy, self.URx, self.URy, self.LRx, self.LRy)
+end
+
+-- Reset to show full texture (no wedge)
 function TextureCoords:SetFull()
   self.ULx, self.ULy = 0, 0
   self.LLx, self.LLy = 0, 1
   self.URx, self.URy = 1, 0
   self.LRx, self.LRy = 1, 1
+
+  self.ULvx, self.ULvy = 0, 0
+  self.LLvx, self.LLvy = 0, 0
+  self.URvx, self.URvy = 0, 0
+  self.LRvx, self.LRvy = 0, 0
 end
 
--- Transform point for rotation, mirroring, and cropping
-local function TransformPoint(x, y, width, height, crop_x, crop_y, texRotation, mirror_h, mirror_v)
-  local rx = x / width
-  local ry = y / height
-  
-  -- Apply cropping
-  rx = (rx - 0.5) * crop_x + 0.5
-  ry = (ry - 0.5) * crop_y + 0.5
-  
-  -- Apply rotation
-  if texRotation and texRotation ~= 0 then
-    local angle = math.rad(texRotation)
-    local cos_angle = math.cos(angle)
-    local sin_angle = math.sin(angle)
-    rx, ry = rx - 0.5, ry - 0.5
-    rx, ry = rx * cos_angle - ry * sin_angle, rx * sin_angle + ry * cos_angle
-    rx, ry = rx + 0.5, ry + 0.5
-  end
-  
-  -- Apply mirroring
-  if mirror_h then rx = 1 - rx end
-  if mirror_v then ry = 1 - ry end
-  
-  return rx, ry
-end
-
--- Set coordinates for a circular slice between two angles
+-- Set coordinates to create a wedge between two angles
 function TextureCoords:SetAngle(width, height, angle1, angle2)
-  angle1 = angle1 % 360
-  angle2 = angle2 % 360
-  
-  if angle2 < angle1 then
-    angle2 = angle2 + 360
+  -- Determine which quadrant the start angle is in
+  local index = floor((angle1 + 45) / 90)
+
+  -- Get the corner names based on the quadrant
+  local middleCorner = pointOrder[index + 1]  -- Center point
+  local startCorner = pointOrder[index + 2]   -- Where wedge starts
+  local endCorner1 = pointOrder[index + 3]    -- First end point
+  local endCorner2 = pointOrder[index + 4]    -- Second end point
+
+  -- Position the corners
+  self:MoveCorner(width, height, middleCorner, 0.5, 0.5)  -- Center
+  self:MoveCorner(width, height, startCorner, angleToCoord(angle1))  -- Start edge
+
+  -- Determine if we need corner bridging
+  local edge1 = floor((angle1 - 45) / 90)
+  local edge2 = floor((angle2 - 45) / 90)
+
+  if (edge1 == edge2) then
+    -- Simple case: both angles in same zone
+    self:MoveCorner(width, height, endCorner1, angleToCoord(angle2))
+  else
+    -- Complex case: need to bridge across zone boundary
+    self:MoveCorner(width, height, endCorner1, 
+                    defaultTexCoord[endCorner1 .. "x"], 
+                    defaultTexCoord[endCorner1 .. "y"])
   end
-  
-  local segments = {{angle1, angle2}}
-  
-  -- Calculate center and corner points
-  local x1, y1 = width / 2, height / 2  -- Center point
-  
-  -- Calculate edge points based on angles
-  local function AngleToPoint(angle)
-    local rad = math.rad(angle)
-    local cos = math.cos(rad)
-    local sin = math.sin(rad)
-    
-    -- Determine which edge the angle intersects
-    local x, y
-    if math.abs(cos) > math.abs(sin) then
-      if cos > 0 then
-        x = width
-        y = height / 2 - width / 2 * sin / cos
-      else
-        x = 0
-        y = height / 2 + width / 2 * sin / cos
-      end
-    else
-      if sin > 0 then
-        y = 0
-        x = width / 2 - height / 2 * cos / sin
-      else
-        y = height
-        x = width / 2 + height / 2 * cos / sin
-      end
-    end
-    return x, y
-  end
-  
-  local x2, y2 = AngleToPoint(angle1)
-  local x3, y3 = AngleToPoint(angle2)
-  
-  -- Store the triangle coordinates (center, start, end)
-  self.x1, self.y1 = x1, y1
-  self.x2, self.y2 = x2, y2
-  self.x3, self.y3 = x3, y3
-  
-  -- Set texture coordinates for the triangle
-  self.ULx, self.ULy = x1 / width, y1 / height
-  self.LLx, self.LLy = x2 / width, y2 / height
-  self.URx, self.URy = x1 / width, y1 / height
-  self.LRx, self.LRy = x3 / width, y3 / height
+
+  -- Always set the final end corner
+  self:MoveCorner(width, height, endCorner2, angleToCoord(angle2))
 end
 
--- Apply transformations to the coordinates
-function TextureCoords:Transform(crop_x, crop_y, texRotation, mirror_h, mirror_v)
-  local width, height = self.texture:GetSize()
-  if width == 0 or height == 0 then
-    width, height = 100, 100  -- Default size
-  end
-  
-  self.ULx, self.ULy = TransformPoint(self.x1 or 0, self.y1 or 0, width, height, crop_x, crop_y, texRotation, mirror_h, mirror_v)
-  self.LLx, self.LLy = TransformPoint(self.x2 or 0, self.y2 or height, width, height, crop_x, crop_y, texRotation, mirror_h, mirror_v)
-  self.URx, self.URy = TransformPoint(self.x3 or width, self.y3 or 0, width, height, crop_x, crop_y, texRotation, mirror_h, mirror_v)
-  self.LRx, self.LRy = TransformPoint(self.x3 or width, self.y3 or height, width, height, crop_x, crop_y, texRotation, mirror_h, mirror_v)
+-- Apply transformations to all corners
+function TextureCoords:Transform(scalex, scaley, texRotation, mirror_h, mirror_v)
+  self.ULx, self.ULy = TransformPoint(self.ULx, self.ULy, scalex, scaley, texRotation, mirror_h, mirror_v)
+  self.LLx, self.LLy = TransformPoint(self.LLx, self.LLy, scalex, scaley, texRotation, mirror_h, mirror_v)
+  self.URx, self.URy = TransformPoint(self.URx, self.URy, scalex, scaley, texRotation, mirror_h, mirror_v)
+  self.LRx, self.LRy = TransformPoint(self.LRx, self.LRy, scalex, scaley, texRotation, mirror_h, mirror_v)
 end
 
 -- =====================================================
--- CIRCULAR PROGRESS TEXTURE
+-- RADIAL SWIPE (MAIN API)
 -- =====================================================
 
+-- Create a new radial swipe spinner
 function RadialSwipe:CreateSpinner(parent)
   local spinner = {
     parent = parent,
@@ -159,17 +242,23 @@ function RadialSwipe:CreateSpinner(parent)
     crop_x = 1,
     crop_y = 1,
     texRotation = 0,
+    scalex = 1,
+    scaley = 1,
     mirror = false,
-    visible = true,
+    mirror_h = false,
+    mirror_v = false,
+    visible = false,
     width = 100,
-    height = 100
+    height = 100,
+    offset = 0
   }
   
-  -- Create 3 textures to handle different angular segments
+  -- Create 3 textures (for handling different angle ranges)
   for i = 1, 3 do
-    local texture = parent:CreateTexture(nil, "OVERLAY", nil, 2)
+    local texture = parent:CreateTexture(nil, "OVERLAY")
     texture:SetSnapToPixelGrid(false)
     texture:SetTexelSnappingBias(0)
+    texture:SetTexCoord(0, 1, 0, 1)  -- Ensure proper texture mapping
     texture:SetAllPoints(parent)
     spinner.textures[i] = texture
     spinner.coords[i] = TextureCoords:New(texture)
@@ -179,14 +268,14 @@ function RadialSwipe:CreateSpinner(parent)
   return spinner
 end
 
--- Set the texture for the spinner
+-- Set the texture image file
 function RadialSwipe:SetTexture(texturePath)
   for i = 1, 3 do
     self.textures[i]:SetTexture(texturePath)
   end
 end
 
--- Set the color of the spinner
+-- Set the color/tint of the texture
 function RadialSwipe:SetColor(r, g, b, a)
   for i = 1, 3 do
     self.textures[i]:SetVertexColor(r, g, b, a)
@@ -197,6 +286,13 @@ end
 function RadialSwipe:SetBlendMode(blendMode)
   for i = 1, 3 do
     self.textures[i]:SetBlendMode(blendMode)
+  end
+end
+
+-- Set desaturation
+function RadialSwipe:SetDesaturated(desaturated)
+  for i = 1, 3 do
+    self.textures[i]:SetDesaturated(desaturated)
   end
 end
 
@@ -214,26 +310,111 @@ function RadialSwipe:Hide()
   end
 end
 
--- Update the texture coordinates based on current angles
+-- Set the width
+function RadialSwipe:SetWidth(width)
+  self.width = width
+end
+
+-- Set the height
+function RadialSwipe:SetHeight(height)
+  self.height = height
+end
+
+-- Set both width and height
+function RadialSwipe:SetSize(width, height)
+  self.width = width
+  self.height = height
+  self:UpdateTextures()
+end
+
+-- Set rotation (in radians)
+function RadialSwipe:SetAuraRotation(radians)
+  for i = 1, 3 do
+    self.textures[i]:SetRotation(radians)
+  end
+end
+
+-- Set texture coordinate rotation
+function RadialSwipe:SetTexRotation(rotation)
+  self.texRotation = rotation
+  self:UpdateTextures()
+end
+
+-- Set mirroring
+function RadialSwipe:SetMirror(mirror)
+  self.mirror = mirror
+  self:UpdateTextures()
+end
+
+-- Set cropping
+function RadialSwipe:SetCropX(crop_x)
+  self.crop_x = crop_x
+  self:UpdateTextures()
+end
+
+function RadialSwipe:SetCropY(crop_y)
+  self.crop_y = crop_y
+  self:UpdateTextures()
+end
+
+-- Set scale
+function RadialSwipe:SetScale(scalex, scaley)
+  self.scalex = scalex or 1
+  self.scaley = scaley or 1
+  
+  -- Handle negative scale as mirroring
+  if self.scalex < 0 then
+    self.mirror_h = true
+    self.scalex = -self.scalex
+  end
+  if self.scaley < 0 then
+    self.mirror_v = true
+    self.scaley = -self.scaley
+  end
+  
+  self:UpdateTextures()
+end
+
+-- Update the texture geometry based on current angles
 function RadialSwipe:UpdateTextures()
-  if not self.visible then return end
+  if not self.visible then 
+    return 
+  end
   
   local angle1 = self.angle1
   local angle2 = self.angle2
   
-  if not angle1 or not angle2 then return end
+  if not angle1 or not angle2 then 
+    return 
+  end
   
-  -- Show full circle
+  local width = self.width * self.scalex + 2 * self.offset
+  local height = self.height * self.scaley + 2 * self.offset
+  
+  if width == 0 or height == 0 then 
+    return 
+  end
+  
+  local crop_x = self.crop_x
+  local crop_y = self.crop_y
+  local texRotation = self.texRotation
+  local mirror_h = self.mirror_h
+  if self.mirror then
+    mirror_h = not mirror_h
+  end
+  local mirror_v = self.mirror_v
+  
+  -- CASE 1: Full circle (360°)
   if angle2 - angle1 >= 360 then
     self.coords[1]:SetFull()
-    self.coords[1]:Transform(self.crop_x, self.crop_y, self.texRotation, self.mirror, false)
+    self.coords[1]:Transform(crop_x, crop_y, texRotation, mirror_h, mirror_v)
     self.coords[1]:Show()
     self.coords[2]:Hide()
     self.coords[3]:Hide()
     return
   end
   
-  -- No progress
+  -- CASE 2: No progress (0°)
   if angle1 == angle2 then
     self.coords[1]:Hide()
     self.coords[2]:Hide()
@@ -241,56 +422,59 @@ function RadialSwipe:UpdateTextures()
     return
   end
   
-  -- Determine how many texture segments we need
-  local index1 = math.floor((angle1 + 45) / 90)
-  local index2 = math.floor((angle2 + 45) / 90)
+  -- CASE 3: Partial arc - determine how many segments needed
+  local index1 = floor((angle1 + 45) / 90)
+  local index2 = floor((angle2 + 45) / 90)
   
   if index1 + 1 >= index2 then
-    -- Single segment
-    self.coords[1]:SetAngle(self.width, self.height, angle1, angle2)
-    self.coords[1]:Transform(self.crop_x, self.crop_y, self.texRotation, self.mirror, false)
+    -- Single segment (arc < ~135°)
+    self.coords[1]:SetAngle(width, height, angle1, angle2)
+    self.coords[1]:Transform(crop_x, crop_y, texRotation, mirror_h, mirror_v)
     self.coords[1]:Show()
     self.coords[2]:Hide()
     self.coords[3]:Hide()
+    
   elseif index1 + 3 >= index2 then
-    -- Two segments
+    -- Two segments (arc ~135-315°)
     local firstEndAngle = (index1 + 1) * 90 + 45
-    self.coords[1]:SetAngle(self.width, self.height, angle1, firstEndAngle)
-    self.coords[1]:Transform(self.crop_x, self.crop_y, self.texRotation, self.mirror, false)
+    
+    self.coords[1]:SetAngle(width, height, angle1, firstEndAngle)
+    self.coords[1]:Transform(crop_x, crop_y, texRotation, mirror_h, mirror_v)
     self.coords[1]:Show()
     
-    self.coords[2]:SetAngle(self.width, self.height, firstEndAngle, angle2)
-    self.coords[2]:Transform(self.crop_x, self.crop_y, self.texRotation, self.mirror, false)
+    self.coords[2]:SetAngle(width, height, firstEndAngle, angle2)
+    self.coords[2]:Transform(crop_x, crop_y, texRotation, mirror_h, mirror_v)
     self.coords[2]:Show()
     
     self.coords[3]:Hide()
+    
   else
-    -- Three segments
+    -- Three segments (arc ~315-360°)
     local firstEndAngle = (index1 + 1) * 90 + 45
     local secondEndAngle = firstEndAngle + 180
     
-    self.coords[1]:SetAngle(self.width, self.height, angle1, firstEndAngle)
-    self.coords[1]:Transform(self.crop_x, self.crop_y, self.texRotation, self.mirror, false)
+    self.coords[1]:SetAngle(width, height, angle1, firstEndAngle)
+    self.coords[1]:Transform(crop_x, crop_y, texRotation, mirror_h, mirror_v)
     self.coords[1]:Show()
     
-    self.coords[2]:SetAngle(self.width, self.height, firstEndAngle, secondEndAngle)
-    self.coords[2]:Transform(self.crop_x, self.crop_y, self.texRotation, self.mirror, false)
+    self.coords[2]:SetAngle(width, height, firstEndAngle, secondEndAngle)
+    self.coords[2]:Transform(crop_x, crop_y, texRotation, mirror_h, mirror_v)
     self.coords[2]:Show()
     
-    self.coords[3]:SetAngle(self.width, self.height, secondEndAngle, angle2)
-    self.coords[3]:Transform(self.crop_x, self.crop_y, self.texRotation, self.mirror, false)
+    self.coords[3]:SetAngle(width, height, secondEndAngle, angle2)
+    self.coords[3]:Transform(crop_x, crop_y, texRotation, mirror_h, mirror_v)
     self.coords[3]:Show()
   end
 end
 
--- Set the progress (angles) for the spinner
+-- Set the progress angles directly
 function RadialSwipe:SetProgress(angle1, angle2)
   self.angle1 = angle1
   self.angle2 = angle2
   self:UpdateTextures()
 end
 
--- Set progress as a percentage (0-1) in clockwise direction
+-- Set progress as percentage (0-1) - CLOCKWISE fill
 function RadialSwipe:SetProgressValue(progress, startAngle, endAngle)
   startAngle = startAngle or 0
   endAngle = endAngle or 360
@@ -300,65 +484,17 @@ function RadialSwipe:SetProgressValue(progress, startAngle, endAngle)
   self:SetProgress(startAngle, angle)
 end
 
--- Set progress as a percentage (0-1) in counter-clockwise direction
+-- Set progress as percentage (0-1) - COUNTERCLOCKWISE drain (for cooldowns)
 function RadialSwipe:SetProgressValueInverse(progress, startAngle, endAngle)
   startAngle = startAngle or 0
   endAngle = endAngle or 360
   progress = math.max(0, math.min(1, progress))
-  progress = 1 - progress
+  progress = 1 - progress  -- Invert
   
   local angle = (endAngle - startAngle) * progress + startAngle
   self:SetProgress(angle, endAngle)
 end
 
--- Set size of the spinner
-function RadialSwipe:SetSize(width, height)
-  self.width = width
-  self.height = height
-  self:UpdateTextures()
-end
-
 -- =====================================================
--- EXAMPLE USAGE
--- =====================================================
-
---[[
-  Example: Adding a radial swipe to an existing cooldown icon
-  
-  -- Create a frame (or use your existing icon frame)
-  local iconFrame = CreateFrame("Frame", nil, UIParent)
-  iconFrame:SetSize(64, 64)
-  iconFrame:SetPoint("CENTER")
-  
-  -- Create a texture for the icon
-  local iconTexture = iconFrame:CreateTexture(nil, "BACKGROUND")
-  iconTexture:SetAllPoints()
-  iconTexture:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-  
-  -- Create the radial swipe overlay
-  local swipe = RadialSwipe:CreateSpinner(iconFrame)
-  swipe:SetTexture("Interface\\AddOns\\WeakAuras\\PowerAurasMedia\\Auras\\Aura3")
-  swipe:SetColor(0, 0, 0, 0.8)  -- Dark overlay
-  swipe:SetBlendMode("BLEND")
-  swipe:SetSize(64, 64)
-  swipe:Show()
-  
-  -- Animate the swipe (cooldown effect)
-  local start = GetTime()
-  local duration = 10  -- 10 second cooldown
-  
-  iconFrame:SetScript("OnUpdate", function()
-    local elapsed = GetTime() - start
-    local progress = elapsed / duration
-    
-    if progress >= 1 then
-      swipe:Hide()
-      iconFrame:SetScript("OnUpdate", nil)
-    else
-      -- Clockwise swipe (emptying)
-      swipe:SetProgressValueInverse(progress, 0, 360)
-    end
-  end)
-]]
-
--- Don't return, we've already registered in TweaksUI namespace
+-- RETURN MODULE
+-- ===========
