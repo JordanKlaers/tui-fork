@@ -89,6 +89,9 @@ local function GetDB(trackerKey)
             labelColor = {},
             labelOffsetX = {},
             labelOffsetY = {},
+            -- Radial swipe settings (per slot, state-independent)
+            radialSwipeSize = {},
+            showRadialWhenReady = {},
             active = {
                 size = {},
                 opacity = {},
@@ -117,6 +120,9 @@ local function GetDB(trackerKey)
     if not db.positions then db.positions = {} end
     if not db.active then db.active = {} end
     if not db.inactive then db.inactive = {} end
+    -- Radial swipe fields
+    if not db.radialSwipeSize then db.radialSwipeSize = {} end
+    if not db.showRadialWhenReady then db.showRadialWhenReady = {} end
     -- Custom label fields
     if not db.labelEnabled then db.labelEnabled = {} end
     if not db.labelText then db.labelText = {} end
@@ -403,6 +409,34 @@ end
 local function SetCountTextOffsetY(trackerKey, slotIndex, offset)
     local db = GetDB(trackerKey)
     if db then db.countTextOffsetY[slotIndex] = offset end
+end
+
+-- ============================================================================
+-- Radial Swipe helpers (size and show-when-ready toggle)
+-- ============================================================================
+
+local function GetRadialSwipeSize(trackerKey, slotIndex)
+    local db = GetDB(trackerKey)
+    return db and db.radialSwipeSize[slotIndex]  -- nil means use default
+end
+
+local function SetRadialSwipeSize(trackerKey, slotIndex, size)
+    local db = GetDB(trackerKey)
+    if db then 
+        db.radialSwipeSize[slotIndex] = size
+    end
+end
+
+local function GetShowRadialWhenReady(trackerKey, slotIndex)
+    local db = GetDB(trackerKey)
+    return db and db.showRadialWhenReady[slotIndex] or false
+end
+
+local function SetShowRadialWhenReady(trackerKey, slotIndex, show)
+    local db = GetDB(trackerKey)
+    if db then
+        db.showRadialWhenReady[slotIndex] = show
+    end
 end
 
 -- ============================================================================
@@ -1046,6 +1080,7 @@ local function CreateHighlightFrame(trackerKey, slotIndex)
     frame.radialSwipe:SetBlendMode("BLEND")
     frame.radialSwipe:SetSize(size, size)  -- Match frame size, not hardcoded 200x200
     frame.radialSwipe:Hide()  -- Hidden when no cooldown
+    frame.radialSwipeDefaultSize = size  -- Store default size for later adjustments
 
     -- Store cooldown animation state
     frame.cooldownStart = nil
@@ -1379,11 +1414,35 @@ local function UpdateHighlightFrame(trackerKey, slotIndex)
         end)
     end
     
-    -- If no cooldown was found, ensure swipe is hidden
+    -- If no cooldown was found, check if we should show radial when ready
     if not cooldownApplied then
-        frame.radialSwipe:Hide()
+        local db = GetDB(trackerKey)
+        local showWhenReady = db and db.showRadialWhenReady[slotIndex]
+        if showWhenReady then
+            -- Apply custom size before showing
+            local radialSize = db and db.radialSwipeSize[slotIndex]
+            if radialSize then
+                frame.radialSwipe:SetSize(radialSize, radialSize)
+            elseif frame.radialSwipeDefaultSize then
+                frame.radialSwipe:SetSize(frame.radialSwipeDefaultSize, frame.radialSwipeDefaultSize)
+            end
+            -- Show full hexagon when ready
+            frame.radialSwipe:SetProgressValue(1, 0, 360)  -- Full circle
+            frame.radialSwipe:Show()
+        else
+            frame.radialSwipe:Hide()
+        end
         frame.cooldownStart = nil
         frame.cooldownDuration = nil
+    else
+        -- Cooldown is active, apply size for the animating swipe
+        local db = GetDB(trackerKey)
+        local radialSize = db and db.radialSwipeSize[slotIndex]
+        if radialSize then
+            frame.radialSwipe:SetSize(radialSize, radialSize)
+        elseif frame.radialSwipeDefaultSize then
+            frame.radialSwipe:SetSize(frame.radialSwipeDefaultSize, frame.radialSwipeDefaultSize)
+        end
     end
     
     -- =========================================================================
@@ -2329,6 +2388,25 @@ end
 
 function CooldownHighlights:SetCountTextOffsetY(trackerKey, slotIndex, offset)
     SetCountTextOffsetY(trackerKey, slotIndex, offset)
+    UpdateHighlightFrame(trackerKey, slotIndex)
+end
+
+-- Radial swipe API (size and show-when-ready toggle)
+function CooldownHighlights:GetRadialSwipeSize(trackerKey, slotIndex)
+    return GetRadialSwipeSize(trackerKey, slotIndex)
+end
+
+function CooldownHighlights:SetRadialSwipeSize(trackerKey, slotIndex, size)
+    SetRadialSwipeSize(trackerKey, slotIndex, size)
+    UpdateHighlightFrame(trackerKey, slotIndex)
+end
+
+function CooldownHighlights:GetShowRadialWhenReady(trackerKey, slotIndex)
+    return GetShowRadialWhenReady(trackerKey, slotIndex)
+end
+
+function CooldownHighlights:SetShowRadialWhenReady(trackerKey, slotIndex, show)
+    SetShowRadialWhenReady(trackerKey, slotIndex, show)
     UpdateHighlightFrame(trackerKey, slotIndex)
 end
 

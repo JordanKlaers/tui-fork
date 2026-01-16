@@ -6607,6 +6607,17 @@ function Cooldowns:CreateTrackerPanel(trackerKey)
             controls.labelOffsetYSlider:SetValue(labelOffsetY or 0)
             controls.labelOffsetYValue:SetText(tostring(labelOffsetY or 0))
             
+            -- Radial swipe settings (state-independent)
+            local radialSize = CooldownHighlights.GetRadialSwipeSize and CooldownHighlights:GetRadialSwipeSize(customTrackerKey, slotIndex)
+            local showRadialWhenReady = CooldownHighlights.GetShowRadialWhenReady and CooldownHighlights:GetShowRadialWhenReady(customTrackerKey, slotIndex)
+            
+            if radialSize then
+                controls.radialSizeInput:SetText(tostring(radialSize))
+            else
+                controls.radialSizeInput:SetText("64")
+            end
+            controls.showRadialWhenReadyCheck:SetChecked(showRadialWhenReady or false)
+            
             -- Initialize aspect dropdown
             UIDropDownMenu_Initialize(controls.aspectDropdown, function(self, level)
                 for _, opt in ipairs(ASPECT_OPTIONS) do
@@ -8646,6 +8657,40 @@ function Cooldowns:CreateCustomTrackersPanel()
         controls.labelOffsetYValue:Hide()
         
         -- =====================================================
+        -- Radial Swipe Controls
+        -- =====================================================
+        controls.radialHeader = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        controls.radialHeader:SetPoint("TOPLEFT", 10, -485)
+        controls.radialHeader:SetText("Cooldown Swipe")
+        controls.radialHeader:SetTextColor(1, 0.82, 0)
+        controls.radialHeader:Hide()
+        
+        controls.radialSizeLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.radialSizeLabel:SetPoint("TOPLEFT", 10, -505)
+        controls.radialSizeLabel:SetText("Swipe Size:")
+        controls.radialSizeLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.radialSizeLabel:Hide()
+        
+        controls.radialSizeInput = CreateFrame("EditBox", nil, controlsPanel, "InputBoxTemplate")
+        controls.radialSizeInput:SetPoint("LEFT", controls.radialSizeLabel, "RIGHT", 5, 0)
+        controls.radialSizeInput:SetSize(50, 20)
+        controls.radialSizeInput:SetAutoFocus(false)
+        controls.radialSizeInput:SetNumeric(true)
+        controls.radialSizeInput:SetMaxLetters(3)
+        controls.radialSizeInput:Hide()
+        
+        controls.showRadialWhenReadyCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        controls.showRadialWhenReadyCheck:SetPoint("TOPLEFT", 10, -535)
+        controls.showRadialWhenReadyCheck:SetSize(24, 24)
+        controls.showRadialWhenReadyCheck:Hide()
+        
+        controls.showRadialWhenReadyLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.showRadialWhenReadyLabel:SetPoint("LEFT", controls.showRadialWhenReadyCheck, "RIGHT", 2, 0)
+        controls.showRadialWhenReadyLabel:SetText("Show hexagon when ready")
+        controls.showRadialWhenReadyLabel:SetTextColor(0.9, 0.9, 0.9)
+        controls.showRadialWhenReadyLabel:Hide()
+        
+        -- =====================================================
         -- Per-Icon Text Controls (Cooldown Timer)
         -- =====================================================
         controls.cooldownTextHeader = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -9110,6 +9155,29 @@ function Cooldowns:CreateCustomTrackersPanel()
                 value = math.floor(value)
                 controls.labelOffsetYValue:SetText(tostring(value))
                 CooldownHighlights:SetLabelOffsetY(customTrackerKey, slotIndex, value)
+                Cooldowns:SaveSettings()
+            end)
+            
+            -- Radial swipe control handlers
+            controls.radialSizeInput:SetScript("OnEnterPressed", function(self)
+                self:ClearFocus()
+            end)
+            controls.radialSizeInput:SetScript("OnEditFocusLost", function(self)
+                local value = tonumber(self:GetText())
+                if value then
+                    value = math.max(24, math.min(200, math.floor(value)))  -- Clamp to 24-200
+                    self:SetText(tostring(value))
+                    CooldownHighlights:SetRadialSwipeSize(customTrackerKey, slotIndex, value)
+                    Cooldowns:SaveSettings()
+                else
+                    -- Invalid input, reset to current value
+                    local currentSize = CooldownHighlights:GetRadialSwipeSize(customTrackerKey, slotIndex) or 64
+                    self:SetText(tostring(currentSize))
+                end
+            end)
+            
+            controls.showRadialWhenReadyCheck:SetScript("OnClick", function(self)
+                CooldownHighlights:SetShowRadialWhenReady(customTrackerKey, slotIndex, self:GetChecked())
                 Cooldowns:SaveSettings()
             end)
             

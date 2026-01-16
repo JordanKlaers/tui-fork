@@ -324,6 +324,14 @@ end
 function RadialSwipe:SetSize(width, height)
   self.width = width
   self.height = height
+  
+  -- Resize and center the textures
+  for i = 1, 3 do
+    self.textures[i]:ClearAllPoints()
+    self.textures[i]:SetSize(width, height)
+    self.textures[i]:SetPoint("CENTER", self.parent, "CENTER", 0, 0)
+  end
+  
   self:UpdateTextures()
 end
 
