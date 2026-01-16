@@ -186,34 +186,23 @@ end
 
 -- ============================================================================
 -- SPECIFIC API SECRECY CHECKS
--- Note: C_Secrets API may not be fully available on all builds
 -- ============================================================================
 
 -- Check if a specific spell's cooldown would be secret right now
 function RestrictionAPI:WouldSpellCooldownBeSecret(spellID)
     if not spellID then return true end
-    if not C_Secrets or not C_Secrets.ShouldSpellCooldownBeSecret then 
-        -- Fallback: assume secret if in restricted content
-        return self:AreCooldownsSecret()
-    end
     return C_Secrets.ShouldSpellCooldownBeSecret(spellID)
 end
 
 -- Check if a specific unit's spellcast would be secret right now
 function RestrictionAPI:WouldUnitSpellCastBeSecret(unit)
     if not unit then return true end
-    if not C_Secrets or not C_Secrets.ShouldUnitSpellCastBeSecret then
-        return self:AreSpellcastsSecret()
-    end
     return C_Secrets.ShouldUnitSpellCastBeSecret(unit)
 end
 
 -- Check if unit comparison would be secret
 function RestrictionAPI:WouldUnitComparisonBeSecret(unit1, unit2)
     if not unit1 or not unit2 then return true end
-    if not C_Secrets or not C_Secrets.ShouldUnitComparisonBeSecret then
-        return self:IsUnitIdentitySecret()
-    end
     return C_Secrets.ShouldUnitComparisonBeSecret(unit1, unit2)
 end
 

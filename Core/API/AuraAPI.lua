@@ -280,16 +280,15 @@ end
 
 -- Check if aura data for a spell is secret
 function AuraAPI:GetAuraSecrecy(spellID)
-    if not spellID or not C_Secrets or not C_Secrets.GetSpellAuraSecrecy then return nil end
+    if not spellID then return nil end
     return C_Secrets.GetSpellAuraSecrecy(spellID)
 end
 
 -- Check if aura is never secret (whitelisted)
 function AuraAPI:IsAuraNeverSecret(spellID)
-    if not spellID or not C_Secrets or not C_Secrets.GetSpellAuraSecrecy then return false end
+    if not spellID then return false end
     local secrecy = C_Secrets.GetSpellAuraSecrecy(spellID)
-    -- Use API.SECRECY_LEVEL constants which are safely defined
-    return secrecy == TweaksUI.API.SECRECY_LEVEL.NEVER
+    return secrecy == Enum.SecrecyLevel.NeverSecret
 end
 
 return AuraAPI

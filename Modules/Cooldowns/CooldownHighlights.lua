@@ -9,9 +9,6 @@ local addonName, TweaksUI = ...
 TweaksUI.CooldownHighlights = TweaksUI.CooldownHighlights or {}
 local CooldownHighlights = TweaksUI.CooldownHighlights
 
--- Load RadialSwipe library for custom hexagonal cooldown swipes
-local RadialSwipe = TweaksUI.RadialSwipe or {}
-
 -- ============================================================================
 -- MIDNIGHT API WRAPPERS (v2.0.0)
 -- ============================================================================
@@ -26,8 +23,22 @@ local DurationAPI = TweaksUI.DurationAPI
 local UPDATE_INTERVAL = 0.2  -- 5 Hz update rate (balance of responsiveness and performance)
 local DEFAULT_SIZE = 48
 
--- Tracker definitions (Custom Tracker only - Essential/Utility removed)
+-- Tracker definitions
 local TRACKER_TYPES = {
+    essential = {
+        key = "essential",
+        viewerName = "EssentialCooldownViewer",
+        displayName = "Essential Cooldowns",
+        framePrefix = "TweaksUI_EssentialHighlight_",
+        dbKey = "essentialHighlights",
+    },
+    utility = {
+        key = "utility",
+        viewerName = "UtilityCooldownViewer",
+        displayName = "Utility Cooldowns",
+        framePrefix = "TweaksUI_UtilityHighlight_",
+        dbKey = "utilityHighlights",
+    },
     custom = {
         key = "custom",
         viewerName = "TweaksUI_CustomTrackerFrame",
@@ -38,19 +49,25 @@ local TRACKER_TYPES = {
 }
 
 -- ============================================================================
--- STATE (custom tracker only)
+-- STATE (per tracker type)
 -- ============================================================================
 
 local highlightFrames = {
+    essential = {},
+    utility = {},
     custom = {},
 }
 
 -- Track cooldown state per-icon (true = on cooldown, false = ready)
 local iconCooldownState = {
+    essential = {},
+    utility = {},
     custom = {},
 }
 
 local layoutWrappers = {
+    essential = {},
+    utility = {},
     custom = {},
 }
 
@@ -64,7 +81,6 @@ local function dprint(...)
         print("|cff00ccff[CooldownHighlights]|r", ...)
     end
 end
-
 
 -- ============================================================================
 -- DATABASE
@@ -89,9 +105,6 @@ local function GetDB(trackerKey)
             labelColor = {},
             labelOffsetX = {},
             labelOffsetY = {},
-            -- Radial swipe settings (per slot, state-independent)
-            radialSwipeSize = {},
-            showRadialWhenReady = {},
             active = {
                 size = {},
                 opacity = {},
@@ -120,9 +133,6 @@ local function GetDB(trackerKey)
     if not db.positions then db.positions = {} end
     if not db.active then db.active = {} end
     if not db.inactive then db.inactive = {} end
-    -- Radial swipe fields
-    if not db.radialSwipeSize then db.radialSwipeSize = {} end
-    if not db.showRadialWhenReady then db.showRadialWhenReady = {} end
     -- Custom label fields
     if not db.labelEnabled then db.labelEnabled = {} end
     if not db.labelText then db.labelText = {} end
@@ -412,34 +422,6 @@ local function SetCountTextOffsetY(trackerKey, slotIndex, offset)
 end
 
 -- ============================================================================
--- Radial Swipe helpers (size and show-when-ready toggle)
--- ============================================================================
-
-local function GetRadialSwipeSize(trackerKey, slotIndex)
-    local db = GetDB(trackerKey)
-    return db and db.radialSwipeSize[slotIndex]  -- nil means use default
-end
-
-local function SetRadialSwipeSize(trackerKey, slotIndex, size)
-    local db = GetDB(trackerKey)
-    if db then 
-        db.radialSwipeSize[slotIndex] = size
-    end
-end
-
-local function GetShowRadialWhenReady(trackerKey, slotIndex)
-    local db = GetDB(trackerKey)
-    return db and db.showRadialWhenReady[slotIndex] or false
-end
-
-local function SetShowRadialWhenReady(trackerKey, slotIndex, show)
-    local db = GetDB(trackerKey)
-    if db then
-        db.showRadialWhenReady[slotIndex] = show
-    end
-end
-
--- ============================================================================
 -- ICON COLLECTION
 -- ============================================================================
 
@@ -492,474 +474,40 @@ local function CollectIcons(trackerKey)
 end
 
 -- ============================================================================
--- COOLDOWN STATE DETECTION (Midnight Beta 6+ Compatible)
--- Beta 6 changes CooldownFrameTemplate to use alpha instead of shown state
--- Uses GetCooldownTimes as primary method with multiple fallbacks
+-- VISUAL STATE DETECTION (no secret value math)
 -- ============================================================================
 
 local GCD_THRESHOLD = 3000  -- Cooldowns longer than 3000ms (3 sec) are "real" cooldowns, not GCD (~1500ms)
-local GCD_THRESHOLD_SEC = 3.0  -- Same threshold in seconds for APIs that use seconds
 
--- Safe comparison that handles secret values (returns false if comparison fails)
-local function SafeGreaterThan(value, threshold)
-    if value == nil then return false end
-    local success, result = pcall(function() return value > threshold end)
-    return success and result
-end
-
--- Safe boolean test that handles secret boolean values (returns false if test fails)
-local function SafeBooleanTest(value)
-    if value == nil then return false end
-    -- Wrap the boolean coercion in pcall - even "if value then" can fail on secrets
-    local success, result = pcall(function() 
-        if value then return true else return false end 
-    end)
-    return success and result
-end
-
--- Primary detection: GetCooldownTimes on a cooldown frame
--- Returns: remaining (seconds), duration (ms), success (bool)
-local function GetCooldownRemainingFromFrame(cooldownFrame)
-    if not cooldownFrame then return 0, 0, false end
-    
-    -- Method 1: GetCooldownTimes (returns milliseconds)
-    if cooldownFrame.GetCooldownTimes then
-        local success, start, duration = pcall(cooldownFrame.GetCooldownTimes, cooldownFrame)
-        if success and start and duration then
-            -- Use safe comparison - handles secret values by returning false
-            if type(start) == "number" and type(duration) == "number" and SafeGreaterThan(duration, 0) then
-                local startSec = start / 1000
-                local durationSec = duration / 1000
-                local remaining = (startSec + durationSec) - GetTime()
-                return remaining, duration, true
-            end
-            -- If secret or comparison failed, fall through to other methods
-        end
-    end
-    
-    -- Method 2: Duration Object API (Midnight native)
-    -- Note: In TWW, GetCooldownDuration returns a number. In Midnight, it returns an object.
-    if cooldownFrame.GetCooldownDuration then
-        local success, durationObj = pcall(cooldownFrame.GetCooldownDuration, cooldownFrame)
-        if success and durationObj then
-            -- Check if it's a Duration Object (table with methods) vs just a number
-            if type(durationObj) == "table" and durationObj.GetRemainingDuration then
-                local ok, remaining = pcall(durationObj.GetRemainingDuration, durationObj)
-                if ok and remaining and type(remaining) == "number" then
-                    -- Use safe comparison for secret values
-                    if SafeGreaterThan(remaining, 0) then
-                        -- Duration objects work in seconds
-                        return remaining, remaining * 1000, true
-                    end
-                end
-            elseif type(durationObj) == "number" and SafeGreaterThan(durationObj, 0) then
-                -- TWW fallback: GetCooldownDuration returns total duration as number
-                -- We can't get remaining time from this alone, so skip
-            end
-        end
-    end
-    
-    return 0, 0, false
-end
-
--- Check if a cooldown is active (duration > GCD threshold, time remaining > 0)
--- Returns: isOnCooldown (bool), durationMs (number)
-local function IsCooldownActiveOnFrame(cooldownFrame)
-    local remaining, durationMs, success = GetCooldownRemainingFromFrame(cooldownFrame)
-    -- Values from GetCooldownRemainingFromFrame should be safe, but double-check
-    if success and SafeGreaterThan(remaining, 0.1) and SafeGreaterThan(durationMs, GCD_THRESHOLD) then
-        return true, durationMs
-    end
-    return false, 0
-end
-
--- Get spellID from a source icon (multiple methods for different icon types)
-local function GetSpellIDFromIcon(icon)
-    if not icon then return nil end
-    
-    local spellID = nil
-    
-    -- Method 1: GetSpellID() method (Blizzard CDM icons)
-    if icon.GetSpellID then
-        pcall(function() spellID = icon:GetSpellID() end)
-        if spellID and type(spellID) == "number" then return spellID end
-    end
-    
-    -- Method 2: Direct properties
-    spellID = icon.spellID or icon.SpellID or icon.spellId or icon.cooldownSpellID
-    if spellID and type(spellID) == "number" then return spellID end
-    
-    return nil
-end
-
--- Safe boolean test that handles secret values (returns false if test fails)
-local function SafeBooleanTest(value)
-    if value == nil then return false end
-    local success, result = pcall(function() 
-        if value then return true else return false end 
-    end)
-    return success and result
-end
-
--- Check cooldown via C_Spell API using spellID
--- Returns: isOnCooldown (bool), durationMs (number)
-local function CheckSpellCooldownAPI(spellID)
-    if not spellID or not C_Spell then return false, 0 end
-    
-    -- Try GetSpellCooldown (returns table in Midnight)
-    if C_Spell.GetSpellCooldown then
-        local success, info = pcall(C_Spell.GetSpellCooldown, spellID)
-        if success and info then
-            local start = info.startTime
-            local duration = info.duration
-            -- Use SafeGreaterThan to handle secret values
-            if start and duration and type(start) == "number" and type(duration) == "number" 
-               and SafeGreaterThan(duration, GCD_THRESHOLD_SEC) then
-                local remaining = (start + duration) - GetTime()
-                if SafeGreaterThan(remaining, 0.1) then
-                    return true, duration * 1000
-                end
-            end
-        end
-    end
-    
-    -- Try Duration Object API (Midnight only - returns object with methods)
-    if C_Spell.GetSpellCooldownDuration then
-        local success, durationObj = pcall(C_Spell.GetSpellCooldownDuration, spellID)
-        if success and durationObj and type(durationObj) == "table" and durationObj.GetRemainingDuration then
-            local ok, remaining = pcall(durationObj.GetRemainingDuration, durationObj)
-            if ok and type(remaining) == "number" and SafeGreaterThan(remaining, GCD_THRESHOLD_SEC) then
-                return true, remaining * 1000
-            end
-        end
-    end
-    
-    return false, 0
-end
-
--- Check if icon texture is desaturated (visual indicator of cooldown)
-local function IsIconDesaturated(icon)
-    if not icon then return false end
-    
-    local iconTexture = icon.Icon or icon.icon
-    if iconTexture and iconTexture.IsDesaturated then
-        local success, isDesat = pcall(iconTexture.IsDesaturated, iconTexture)
-        if success then
-            -- Use safe boolean test for secret values
-            return SafeBooleanTest(isDesat)
-        end
-    end
-    
-    return false
-end
-
--- Check if cooldown text is visible on a cooldown frame (visual indicator)
-local function HasVisibleCooldownText(cooldownFrame)
-    if not cooldownFrame then return false end
-    
-    -- Look for common cooldown text children by name
-    local textNames = {"Text", "text", "CooldownText", "cooldownText", "Duration", "duration"}
-    for _, name in ipairs(textNames) do
-        local textChild = cooldownFrame[name]
-        if textChild and textChild.IsShown and textChild.GetText then
-            local success, shown = pcall(textChild.IsShown, textChild)
-            if success and shown then
-                local ok, text = pcall(textChild.GetText, textChild)
-                if ok and text and text ~= "" then
-                    return true
-                end
-            end
-        end
-    end
-    
-    -- Check REGIONS (FontStrings are regions, not children!)
-    if cooldownFrame.GetRegions then
-        local regions = { cooldownFrame:GetRegions() }
-        for _, region in ipairs(regions) do
-            if region.GetText then
-                local success, text = pcall(region.GetText, region)
-                if success and text and text ~= "" then
-                    local ok, shown = pcall(region.IsShown, region)
-                    if ok and shown then
-                        if debugMode then
-                            dprint(string.format("  HasVisibleCooldownText: FOUND text='%s' shown=%s", text, tostring(shown)))
-                        end
-                        return true
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Also check children (in case some frames use child frames for text)
-    if cooldownFrame.GetChildren then
-        local children = { cooldownFrame:GetChildren() }
-        for _, child in ipairs(children) do
-            if child.GetText then
-                local success, text = pcall(child.GetText, child)
-                if success and text and text ~= "" then
-                    local ok, shown = pcall(child.IsShown, child)
-                    if ok and shown then
-                        return true
-                    end
-                end
-            end
-        end
-    end
-    
-    if debugMode then
-        dprint("  HasVisibleCooldownText: NO visible text found")
-    end
-    return false
-end
-
--- Check if cooldown text is visible on an ICON frame (checks icon's cooldown frame)
-local function HasVisibleCooldownTextOnIcon(icon)
-    if not icon then return false end
-    
-    -- Check the icon's cooldown frame
-    local cooldown = icon.Cooldown or icon.cooldown
-    if cooldown and HasVisibleCooldownText(cooldown) then
-        return true
-    end
-    
-    -- Check all children that might be cooldown frames
-    if icon.GetChildren then
-        local children = { icon:GetChildren() }
-        for _, child in ipairs(children) do
-            -- If child is a Cooldown frame type, check it
-            local objType = child.GetObjectType and child:GetObjectType()
-            if objType == "Cooldown" then
-                if HasVisibleCooldownText(child) then
-                    return true
-                end
-            end
-            -- Also check child's regions directly for FontStrings with text
-            if child.GetRegions then
-                local regions = { child:GetRegions() }
-                for _, region in ipairs(regions) do
-                    if region.GetText then
-                        local success, text = pcall(region.GetText, region)
-                        if success and text and text ~= "" then
-                            local ok, shown = pcall(region.IsShown, region)
-                            if ok and shown then
-                                return true
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    return false
-end
-
--- Check spell charges - MOST RELIABLE method for charge-based abilities
--- Returns: hasChargeSystem (bool), isReady (bool or nil if can't determine)
-local function CheckSpellCharges(spellID)
-    if not spellID or not C_Spell or not C_Spell.GetSpellCharges then
-        return false, nil  -- Can't check charges
-    end
-    
-    local success, chargeInfo = pcall(C_Spell.GetSpellCharges, spellID)
-    if not success or not chargeInfo then
-        return false, nil  -- API call failed
-    end
-    
-    local currentCharges = chargeInfo.currentCharges
-    local maxCharges = chargeInfo.maxCharges
-    
-    -- Check if this spell uses charges (maxCharges must be readable and > 0)
-    if type(maxCharges) ~= "number" or maxCharges <= 0 then
-        return false, nil  -- Not a charge-based spell
-    end
-    
-    -- It's a charge-based spell - check current charges
-    if type(currentCharges) ~= "number" then
-        return true, nil  -- Has charges but can't read current (secret?)
-    end
-    
-    -- We have readable charge info
-    if currentCharges > 0 then
-        return true, true  -- Has charges = READY (not on cooldown)
-    else
-        return true, false  -- No charges = NOT READY (on cooldown)
-    end
-end
-
--- Check cooldown frame for DEFINITIVE state
--- Returns: couldDetermine (bool), isOnCooldown (bool)
-local function CheckCooldownFrameState(cooldownFrame)
-    if not cooldownFrame then return false, false end
-    
-    -- METHOD A: Check if cooldown frame is actively displaying a cooldown
-    -- GetCooldownDisplayDuration returns 0 when no cooldown, >0 when active
-    if cooldownFrame.GetCooldownDisplayDuration then
-        local success, displayDuration = pcall(cooldownFrame.GetCooldownDisplayDuration, cooldownFrame)
-        if success and displayDuration then
-            if type(displayDuration) == "number" then
-                -- Filter out GCD - only count as "on cooldown" if duration > 1.5 seconds
-                if displayDuration > 1.5 then
-                    return true, true  -- Has display duration > GCD = ON cooldown
-                else
-                    return true, false  -- Just GCD or no cooldown = OFF cooldown (ready)
-                end
-            end
-        end
-    end
-    
-    -- METHOD B: Try GetCooldownTimes (works out of combat)
-    if cooldownFrame.GetCooldownTimes then
-        local success, start, duration = pcall(cooldownFrame.GetCooldownTimes, cooldownFrame)
-        if success then
-            -- Check if we got readable values (not secret)
-            if type(start) == "number" and type(duration) == "number" then
-                -- We can read the values!
-                if duration > GCD_THRESHOLD then  -- More than GCD (3000ms)
-                    local remaining = (start/1000 + duration/1000) - GetTime()
-                    if remaining > 0.1 then
-                        return true, true  -- Definitively ON cooldown
-                    else
-                        return true, false  -- Definitively OFF cooldown (expired)
-                    end
-                else
-                    -- Duration is 0 or just GCD
-                    return true, false  -- Definitively OFF cooldown
-                end
-            end
-            -- Values were secret - can't determine from this method, try others
-        end
-    end
-    
-    -- METHOD C: Check swipe texture visibility
-    -- Blizzard cooldown frames have internal textures that are only visible during cooldowns
-    local swipe = cooldownFrame.swipeTexture or cooldownFrame.Swipe or cooldownFrame:GetRegions()
-    if swipe and type(swipe) ~= "table" then
-        -- Got a single region (probably the swipe)
-        if swipe.IsShown and swipe.GetAlpha then
-            local success, shown = pcall(swipe.IsShown, swipe)
-            if success and shown then
-                local ok, alpha = pcall(swipe.GetAlpha, swipe)
-                if ok and type(alpha) == "number" and alpha > 0 then
-                    -- Swipe is visible - but need to verify it's not just GCD
-                    -- Check cooldown duration to filter GCD
-                    if cooldownFrame.GetCooldownDuration then
-                        local dOK, dur = pcall(cooldownFrame.GetCooldownDuration, cooldownFrame)
-                        if dOK and type(dur) == "number" and dur <= 1.5 then
-                            return true, false  -- Just GCD, not real cooldown
-                        end
-                    end
-                    return true, true  -- Swipe is visible = ON cooldown
-                end
-            end
-        end
-    end
-    
-    -- METHOD D: Check edge texture (the bright line at edge of sweep)
-    if cooldownFrame.GetDrawEdge then
-        local success, drawEdge = pcall(cooldownFrame.GetDrawEdge, cooldownFrame)
-        if success and type(drawEdge) == "boolean" then
-            -- If edge is being drawn, cooldown is active
-            -- But we need to also check if cooldown is actually running
-            -- GetDrawEdge just tells us the setting, not if it's currently visible
-        end
-    end
-    
-    return false, false  -- Couldn't determine
-end
-
--- Multi-method detection for cooldown state
--- Returns: isOnCooldown (boolean), durationMs (number)
-local function DetectCooldownState(frame, sourceIcon, trackerKey)
-    if debugMode then
-        dprint(string.format("  DetectCooldownState: frame=%s, sourceIcon=%s, trackerKey=%s",
-            frame and "YES" or "nil",
-            sourceIcon and "YES" or "nil",
-            tostring(trackerKey)))
-    end
-    
-    -- =========================================================================
-    -- PRIMARY METHOD: Check for visible cooldown TEXT on the source icon
-    -- If cooldown text is showing = ON COOLDOWN
-    -- If no cooldown text = READY (handles GCD, charges with availability, etc.)
-    -- This is the most reliable visual indicator - same as action bar icons
-    -- =========================================================================
-    
-    -- Check source icon for cooldown text (checks icon and all children/grandchildren)
-    if sourceIcon then
-        if HasVisibleCooldownTextOnIcon(sourceIcon) then
-            if debugMode then
-                dprint("    COOLDOWN TEXT VISIBLE ON ICON → ON COOLDOWN")
-            end
-            return true, 5000
-        end
-        
-        -- Also check source icon's cooldown frame directly
-        local sourceCooldown = sourceIcon.Cooldown or sourceIcon.cooldown
-        if sourceCooldown and HasVisibleCooldownText(sourceCooldown) then
-            if debugMode then
-                dprint("    COOLDOWN TEXT VISIBLE ON CD FRAME → ON COOLDOWN")
-            end
-            return true, 5000
-        end
-    end
-    
-    -- Check our highlight frame for cooldown text
-    if frame then
-        if HasVisibleCooldownTextOnIcon(frame) then
-            if debugMode then
-                dprint("    COOLDOWN TEXT VISIBLE ON OUR FRAME → ON COOLDOWN")
-            end
-            return true, 5000
-        end
-        
-        if frame.cooldown and HasVisibleCooldownText(frame.cooldown) then
-            if debugMode then
-                dprint("    COOLDOWN TEXT VISIBLE ON OUR CD FRAME → ON COOLDOWN")
-            end
-            return true, 5000
-        end
-    end
-    
-    -- =========================================================================
-    -- SECONDARY: Check icon desaturation (backup visual indicator)
-    -- Some cooldown frames desaturate the icon when on cooldown
-    -- =========================================================================
-    if sourceIcon and IsIconDesaturated(sourceIcon) then
-        -- Icon is desaturated - but only count as "on cooldown" if there's also
-        -- a cooldown spiral active (to avoid false positives)
-        local sourceCooldown = sourceIcon.Cooldown or sourceIcon.cooldown
-        if sourceCooldown then
-            -- Check if cooldown display duration is significant (> GCD)
-            if sourceCooldown.GetCooldownDisplayDuration then
-                local success, displayDuration = pcall(sourceCooldown.GetCooldownDisplayDuration, sourceCooldown)
-                if success and type(displayDuration) == "number" and displayDuration > 1.5 then
-                    if debugMode then
-                        dprint("    ICON DESATURATED + LONG COOLDOWN → ON COOLDOWN")
-                    end
-                    return true, displayDuration * 1000
-                end
-            end
-        end
-    end
-    
-    -- =========================================================================
-    -- No cooldown text visible = READY
-    -- =========================================================================
-    if debugMode then
-        dprint("    NO COOLDOWN TEXT → READY (off cooldown)")
-    end
-    return false, 0
-end
-
--- Simple visual state check for initial state detection
--- Returns: isReady (true = ready/off cooldown, false = on cooldown)
+-- Detect visual state by checking if source icon appears "ready" or "on cooldown"
+-- This is used for initial state detection; final check happens at end of update
 local function GetIconVisualState(icon)
     if not icon then return true end  -- Default to "ready" if no icon
     
-    local isOnCooldown, _ = DetectCooldownState(nil, icon, nil)
-    return not isOnCooldown
+    local isReady = true
+    
+    -- Check cooldown frame times - only count as "on cooldown" if duration > GCD
+    -- NOTE: GetCooldownTimes returns MILLISECONDS
+    pcall(function()
+        local cooldown = icon.Cooldown or icon.cooldown
+        if cooldown and cooldown.GetCooldownTimes then
+            local start, duration = cooldown:GetCooldownTimes()
+            if start and duration and type(start) == "number" and type(duration) == "number" and duration > 0 then
+                -- Only count as "on cooldown" if duration > 3000ms (3 sec)
+                if duration > GCD_THRESHOLD then
+                    -- Convert to seconds for remaining time check
+                    local startSec = start / 1000
+                    local durationSec = duration / 1000
+                    local remaining = (startSec + durationSec) - GetTime()
+                    if remaining > 0.1 then
+                        isReady = false
+                    end
+                end
+            end
+        end
+    end)
+    
+    return isReady
 end
 
 local function GetSlotInfo(trackerKey, slotIndex)
@@ -968,39 +516,19 @@ local function GetSlotInfo(trackerKey, slotIndex)
     local Cooldowns = TweaksUI.ModuleManager and TweaksUI.ModuleManager:GetModule(TweaksUI.MODULE_IDS.COOLDOWNS)
     if Cooldowns and Cooldowns.GetOrderedIcons then
         local viewer = GetViewer(trackerKey)
-        if debugMode then
-            dprint(string.format("GetSlotInfo[%s-%d]: viewer=%s", 
-                trackerKey, slotIndex, viewer and viewer:GetName() or "NIL"))
-        end
         if viewer then
             icons = Cooldowns.GetOrderedIcons(viewer, trackerKey)
-            if debugMode then
-                dprint(string.format("  GetOrderedIcons returned %d icons", icons and #icons or 0))
-            end
         else
             icons = {}
         end
     else
         -- Fallback to local CollectIcons
         icons = CollectIcons(trackerKey)
-        if debugMode then
-            dprint(string.format("GetSlotInfo[%s-%d]: CollectIcons returned %d icons", 
-                trackerKey, slotIndex, icons and #icons or 0))
-        end
     end
     
     local icon = icons[slotIndex]
     
-    if not icon then 
-        if debugMode then
-            dprint(string.format("GetSlotInfo[%s-%d]: NO ICON at this slot index", trackerKey, slotIndex))
-        end
-        return nil 
-    end
-    
-    if debugMode then
-        dprint(string.format("GetSlotInfo[%s-%d]: FOUND icon", trackerKey, slotIndex))
-    end
+    if not icon then return nil end
     
     local info = {
         icon = icon,
@@ -1073,18 +601,14 @@ local function CreateHighlightFrame(trackerKey, slotIndex)
     frame.icon:SetPoint("BOTTOMRIGHT", -2, 2)
     frame.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     
-    -- Create radial swipe for cooldown animation (matches DebugTest configuration)
-    frame.radialSwipe = RadialSwipe:CreateSpinner(frame)
-    frame.radialSwipe:SetTexture("Interface\\monk\\hex-30")  -- Hexagon texture
-    frame.radialSwipe:SetColor(1, 1, 1, 1)  -- White overlay
-    frame.radialSwipe:SetBlendMode("BLEND")
-    frame.radialSwipe:SetSize(size, size)  -- Match frame size, not hardcoded 200x200
-    frame.radialSwipe:Hide()  -- Hidden when no cooldown
-    frame.radialSwipeDefaultSize = size  -- Store default size for later adjustments
-
-    -- Store cooldown animation state
-    frame.cooldownStart = nil
-    frame.cooldownDuration = nil
+    -- Cooldown spiral (uses CooldownFrameTemplate which includes countdown text)
+    frame.cooldown = CreateFrame("Cooldown", frameName .. "_Cooldown", frame, "CooldownFrameTemplate")
+    frame.cooldown:SetAllPoints(frame.icon)
+    frame.cooldown:SetDrawEdge(true)
+    frame.cooldown:SetDrawBling(false)
+    frame.cooldown:SetDrawSwipe(true)
+    frame.cooldown:SetHideCountdownNumbers(false)
+    frame.cooldown:SetSwipeColor(0, 0, 0, 0.8)
     
     -- Charge/stack count text (bottom right corner, explicitly above cooldown)
     frame.count = frame:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
@@ -1131,27 +655,6 @@ local function CreateHighlightFrame(trackerKey, slotIndex)
     frame.customLabel:SetShadowColor(0, 0, 0, 1)
     frame.customLabel:SetDrawLayer("OVERLAY", 7)
     frame.customLabel:Hide()
-    
-    -- OnUpdate script to animate the radial swipe based on cooldown progress
-    frame:SetScript("OnUpdate", function(self, elapsed)
-        if not self.cooldownStart or not self.cooldownDuration then
-            return
-        end
-        
-        local currentTime = GetTime()
-        local elapsed = currentTime - self.cooldownStart
-        local progress = elapsed / self.cooldownDuration  -- 0 to 1 (empty to full - FILLS UP during cooldown)
-        
-        if progress >= 1 then
-            -- Cooldown finished (fully filled)
-            self.radialSwipe:Hide()
-            self.cooldownStart = nil
-            self.cooldownDuration = nil
-        else
-            -- Update swipe progress - fills clockwise from top as cooldown progresses
-            self.radialSwipe:SetProgressValue(progress, 0, 360)
-        end
-    end)
     
     -- Store references
     frame.trackerKey = trackerKey
@@ -1213,29 +716,14 @@ end
 
 local function UpdateHighlightFrame(trackerKey, slotIndex)
     local frame = highlightFrames[trackerKey][slotIndex]
-    if not frame then 
-        if debugMode then
-            dprint(string.format("[%s-%d] NO FRAME EXISTS", trackerKey, slotIndex))
-        end
-        return 
-    end
+    if not frame then return end
     
     if not IsHighlightEnabled(trackerKey, slotIndex) then
-        if debugMode then
-            dprint(string.format("[%s-%d] HIGHLIGHT NOT ENABLED - hiding", trackerKey, slotIndex))
-        end
         frame:Hide()
         return
     end
     
     local slotInfo = GetSlotInfo(trackerKey, slotIndex)
-    
-    if debugMode then
-        dprint(string.format("[%s-%d] slotInfo=%s, texture=%s", 
-            trackerKey, slotIndex, 
-            slotInfo and "FOUND" or "NIL",
-            slotInfo and tostring(slotInfo.texture) or "N/A"))
-    end
     
     -- Check if Layout mode is active
     local isLayoutMode = false
@@ -1251,9 +739,7 @@ local function UpdateHighlightFrame(trackerKey, slotIndex)
             ApplyAspectRatio(frame, size, aspectRatio, trackerKey, slotIndex, "active")
             frame.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
             frame.icon:SetDesaturated(true)
-            frame.radialSwipe:Hide()
-            frame.cooldownStart = nil
-            frame.cooldownDuration = nil
+            frame.cooldown:Clear()
             if frame.count then frame.count:Hide() end
             if frame.glowFrame then frame.glowFrame:Hide() end
             frame:SetAlpha(0.5)
@@ -1322,9 +808,7 @@ local function UpdateHighlightFrame(trackerKey, slotIndex)
             frame:SetAlpha(opacity)
         end
         
-        frame.radialSwipe:Hide()
-        frame.cooldownStart = nil
-        frame.cooldownDuration = nil
+        frame.cooldown:Clear()
         if frame.count then frame.count:Hide() end
         if frame.glowFrame then frame.glowFrame:Hide() end
         
@@ -1391,58 +875,17 @@ local function UpdateHighlightFrame(trackerKey, slotIndex)
     
     local cooldownApplied = false
     
-    -- Method 1: Source cooldown's GetCooldownTimes
-    if sourceCooldown and sourceCooldown.GetCooldownTimes then
+    -- Method 1: Source cooldown's GetCooldownDuration (Midnight Duration Object)
+    if sourceCooldown and sourceCooldown.GetCooldownDuration and frame.cooldown.SetCooldownFromDurationObject then
         local success = pcall(function()
-            local start, duration = sourceCooldown:GetCooldownTimes()
-            if start and duration and duration > 1500 then  -- > 1.5 seconds (ignore GCD)
-                -- Convert from milliseconds to seconds
-                local startSec = start / 1000
-                local durationSec = duration / 1000
-                
-                -- Start the radial swipe animation
-                frame.cooldownStart = startSec
-                frame.cooldownDuration = durationSec
-                frame.radialSwipe:Show()
-                cooldownApplied = true
-            else
-                -- No cooldown or just GCD - hide swipe
-                frame.radialSwipe:Hide()
-                frame.cooldownStart = nil
-                frame.cooldownDuration = nil
-            end
+            frame.cooldown:SetCooldownFromDurationObject(sourceCooldown:GetCooldownDuration(), true)
         end)
+        if success then cooldownApplied = true end
     end
     
-    -- If no cooldown was found, check if we should show radial when ready
-    if not cooldownApplied then
-        local db = GetDB(trackerKey)
-        local showWhenReady = db and db.showRadialWhenReady[slotIndex]
-        if showWhenReady then
-            -- Apply custom size before showing
-            local radialSize = db and db.radialSwipeSize[slotIndex]
-            if radialSize then
-                frame.radialSwipe:SetSize(radialSize, radialSize)
-            elseif frame.radialSwipeDefaultSize then
-                frame.radialSwipe:SetSize(frame.radialSwipeDefaultSize, frame.radialSwipeDefaultSize)
-            end
-            -- Show full hexagon when ready
-            frame.radialSwipe:SetProgressValue(1, 0, 360)  -- Full circle
-            frame.radialSwipe:Show()
-        else
-            frame.radialSwipe:Hide()
-        end
-        frame.cooldownStart = nil
-        frame.cooldownDuration = nil
-    else
-        -- Cooldown is active, apply size for the animating swipe
-        local db = GetDB(trackerKey)
-        local radialSize = db and db.radialSwipeSize[slotIndex]
-        if radialSize then
-            frame.radialSwipe:SetSize(radialSize, radialSize)
-        elseif frame.radialSwipeDefaultSize then
-            frame.radialSwipe:SetSize(frame.radialSwipeDefaultSize, frame.radialSwipeDefaultSize)
-        end
+    -- Method 2: Use SpellAPI wrapper (handles Duration Object natively)
+    if not cooldownApplied and spellID and SpellAPI then
+        cooldownApplied = SpellAPI:ApplyCooldownToFrame(frame.cooldown, spellID, true)
     end
     
     -- =========================================================================
@@ -1631,22 +1074,57 @@ local function UpdateHighlightFrame(trackerKey, slotIndex)
     
     -- =========================================================================
     -- FINAL VISIBILITY: Check cooldown state per-icon and hide/show accordingly
-    -- Uses centralized DetectCooldownState for Beta 6+ compatibility
+    -- Only hide if we can CONFIRM this specific icon has a real cooldown > GCD
+    -- Default to SHOWING if we can't determine cooldown state
     -- =========================================================================
     local showInactive = GetShowState(trackerKey, slotIndex, "inactive")
     local showActive = GetShowState(trackerKey, slotIndex, "active")
     
-    if debugMode then
-        dprint(string.format("[%s-%d] VISIBILITY CHECK: showActive=%s, showInactive=%s",
-            trackerKey, slotIndex, tostring(showActive), tostring(showInactive)))
-    end
+    -- Default to "ready" (not on cooldown) - only set to true if we CONFIRM a real cooldown
+    local thisIconOnCooldown = false
+    local detectedDuration = 0
     
-    -- Use centralized detection with multiple fallback methods
-    local thisIconOnCooldown, detectedDuration = DetectCooldownState(frame, sourceIcon, trackerKey)
+    -- Try to get actual cooldown duration from our highlight frame
+    -- NOTE: GetCooldownTimes returns MILLISECONDS (start and duration)
+    pcall(function()
+        if frame.cooldown and frame.cooldown.GetCooldownTimes then
+            local start, duration = frame.cooldown:GetCooldownTimes()
+            
+            if start and duration and type(start) == "number" and type(duration) == "number" and duration > 0 then
+                detectedDuration = duration
+                -- Convert ms to seconds for comparison with GetTime()
+                local startSec = start / 1000
+                local durationSec = duration / 1000
+                local remaining = (startSec + durationSec) - GetTime()
+                
+                -- Only count as "on cooldown" if duration > 3000ms (3 sec) - ignore GCD (~1500ms)
+                if remaining > 0.1 and duration > GCD_THRESHOLD then
+                    thisIconOnCooldown = true
+                end
+            end
+        end
+    end)
     
-    if debugMode then
-        dprint(string.format("[%s-%d] DETECTION RESULT: onCooldown=%s, duration=%dms",
-            trackerKey, slotIndex, tostring(thisIconOnCooldown), detectedDuration))
+    -- Fallback: Try source icon's cooldown if we haven't confirmed yet
+    if not thisIconOnCooldown and detectedDuration == 0 then
+        pcall(function()
+            if sourceCooldown and sourceCooldown.GetCooldownTimes then
+                local start, duration = sourceCooldown:GetCooldownTimes()
+                
+                if start and duration and type(start) == "number" and type(duration) == "number" and duration > 0 then
+                    detectedDuration = duration
+                    -- Convert ms to seconds for comparison with GetTime()
+                    local startSec = start / 1000
+                    local durationSec = duration / 1000
+                    local remaining = (startSec + durationSec) - GetTime()
+                    
+                    -- Only count as "on cooldown" if duration > 3000ms (3 sec)
+                    if remaining > 0.1 and duration > GCD_THRESHOLD then
+                        thisIconOnCooldown = true
+                    end
+                end
+            end
+        end)
     end
     
     -- DEBUG: Print when we're about to hide an icon
@@ -2391,25 +1869,6 @@ function CooldownHighlights:SetCountTextOffsetY(trackerKey, slotIndex, offset)
     UpdateHighlightFrame(trackerKey, slotIndex)
 end
 
--- Radial swipe API (size and show-when-ready toggle)
-function CooldownHighlights:GetRadialSwipeSize(trackerKey, slotIndex)
-    return GetRadialSwipeSize(trackerKey, slotIndex)
-end
-
-function CooldownHighlights:SetRadialSwipeSize(trackerKey, slotIndex, size)
-    SetRadialSwipeSize(trackerKey, slotIndex, size)
-    UpdateHighlightFrame(trackerKey, slotIndex)
-end
-
-function CooldownHighlights:GetShowRadialWhenReady(trackerKey, slotIndex)
-    return GetShowRadialWhenReady(trackerKey, slotIndex)
-end
-
-function CooldownHighlights:SetShowRadialWhenReady(trackerKey, slotIndex, show)
-    SetShowRadialWhenReady(trackerKey, slotIndex, show)
-    UpdateHighlightFrame(trackerKey, slotIndex)
-end
-
 function CooldownHighlights:ToggleDebug()
     debugMode = not debugMode
     print("|cff00ff00TweaksUI CooldownHighlights:|r Debug mode", debugMode and "ENABLED" or "DISABLED")
@@ -2709,3 +2168,200 @@ end)
 C_Timer.After(2, function()
     CooldownHighlights:InitializeAll()
 end)
+
+-- ============================================================================
+-- DEBUG SLASH COMMAND FOR OVERLAY INSPECTION
+-- ============================================================================
+
+SLASH_TUICDOVERLAY1 = "/tuicdoverlay"
+SlashCmdList["TUICDOVERLAY"] = function(msg)
+    print("|cff00ff00=== TweaksUI Cooldown Overlay Debug ===|r")
+    
+    -- Check EssentialCooldownViewer icons
+    local viewer = _G["EssentialCooldownViewer"]
+    if not viewer then
+        print("|cffff0000EssentialCooldownViewer not found|r")
+        return
+    end
+    
+    print("Scanning EssentialCooldownViewer children...")
+    
+    for i = 1, viewer:GetNumChildren() do
+        local icon = select(i, viewer:GetChildren())
+        if icon and (icon.Icon or icon.icon) then
+            local iconTex = icon.Icon or icon.icon
+            local iconName = icon:GetName() or ("Icon" .. i)
+            
+            print("|cffffcc00Icon:|r", iconName)
+            
+            -- Check known overlay frames
+            local overlayNames = {"OutOfRange", "NotUsable", "InsufficientResources", "RangeOverlay", "NotUsableOverlay", "Unusable", "NoResource", "InsufficientMana"}
+            for _, name in ipairs(overlayNames) do
+                if icon[name] then
+                    print("  |cff00ff00Found:|r", name, "shown:", icon[name]:IsShown())
+                end
+            end
+            
+            -- List ALL children frames
+            print("  Children frames:")
+            if icon.GetChildren then
+                for j = 1, icon:GetNumChildren() do
+                    local child = select(j, icon:GetChildren())
+                    local childName = child:GetName() or ""
+                    local childType = child:GetObjectType()
+                    local shown = child:IsShown()
+                    local alpha = child:GetAlpha()
+                    
+                    -- Color code: green if shown, grey if hidden
+                    local color = shown and "|cff00ff00" or "|cff888888"
+                    print("    ", color, childName ~= "" and childName or ("unnamed " .. childType), "|r", 
+                          "shown:", shown, "alpha:", string.format("%.2f", alpha))
+                    
+                    -- Check child's Count reference
+                    if child.Count and child.Count.GetText then
+                        local text = child.Count:GetText() or ""
+                        print("      |cff00ccffChild.Count text:|r", text, "shown:", child.Count:IsShown())
+                    end
+                    
+                    -- Check child's regions for FontStrings
+                    if child.GetRegions then
+                        for k = 1, child:GetNumRegions() do
+                            local region = select(k, child:GetRegions())
+                            if region and region:GetObjectType() == "FontString" then
+                                local text = region:GetText() or ""
+                                local rShown = region:IsShown()
+                                print("      |cffff00ffFontString:|r text='" .. text .. "' shown:", rShown)
+                            end
+                        end
+                    end
+                end
+            end
+            
+            -- List ALL regions (textures and fontstrings)
+            print("  Regions/Textures:")
+            if icon.GetRegions then
+                for j = 1, icon:GetNumRegions() do
+                    local region = select(j, icon:GetRegions())
+                    local regionName = region:GetName() or ""
+                    local regionType = region:GetObjectType()
+                    local shown = region:IsShown()
+                    local alpha = region:GetAlpha()
+                    
+                    -- Get extra info based on type
+                    local extraInfo = ""
+                    if regionType == "Texture" and region.GetVertexColor then
+                        local r, g, b, a = region:GetVertexColor()
+                        if r and g and b then
+                            extraInfo = string.format(" vertexColor:(%.2f,%.2f,%.2f,%.2f)", r, g, b, a or 1)
+                        end
+                    elseif regionType == "FontString" and region.GetText then
+                        local text = region:GetText() or ""
+                        extraInfo = " text='" .. text .. "'"
+                    end
+                    
+                    local color = shown and "|cff00ff00" or "|cff888888"
+                    print("    ", color, regionName ~= "" and regionName or ("unnamed " .. regionType), "|r",
+                          "shown:", shown, "alpha:", string.format("%.2f", alpha), extraInfo)
+                end
+            end
+            
+            print("")  -- Blank line between icons
+        end
+    end
+    
+    print("|cff00ff00=== End Debug ===|r")
+end
+
+-- Debug command specifically for charge text
+SLASH_TUICDCHARGES1 = "/tuicdcharges"
+SlashCmdList["TUICDCHARGES"] = function(msg)
+    print("|cff00ff00=== TweaksUI Charge Text Debug ===|r")
+    
+    local viewer = _G["EssentialCooldownViewer"]
+    if not viewer then
+        print("|cffff0000EssentialCooldownViewer not found|r")
+        return
+    end
+    
+    for i = 1, viewer:GetNumChildren() do
+        local icon = select(i, viewer:GetChildren())
+        if icon and (icon.Icon or icon.icon or icon.Cooldown or icon.cooldown) then
+            local iconName = icon:GetName() or ("Icon" .. i)
+            print("|cffffcc00" .. iconName .. "|r")
+            
+            -- Check all common spellID properties
+            local spellID = icon.spellID or icon.SpellID or icon.spellId or icon.cooldownSpellID or icon.spell
+            print("  spellID props:", icon.spellID, icon.SpellID, icon.spellId, icon.cooldownSpellID, icon.spell)
+            
+            -- Try GetSpellID method
+            if icon.GetSpellID then
+                local success, result = pcall(function() return icon:GetSpellID() end)
+                print("  GetSpellID():", success and result or ("ERROR: " .. tostring(result)))
+            end
+            
+            -- Check data table
+            if icon.data then
+                print("  icon.data:", type(icon.data))
+                if type(icon.data) == "table" then
+                    for k, v in pairs(icon.data) do
+                        print("    data." .. tostring(k) .. ":", tostring(v))
+                    end
+                end
+            end
+            
+            -- Check for Count text directly
+            if icon.Count then
+                print("  icon.Count:", icon.Count:GetText() or "(empty)", "shown:", icon.Count:IsShown())
+            end
+            if icon.count then
+                print("  icon.count:", icon.count:GetText() or "(empty)", "shown:", icon.count:IsShown())
+            end
+            
+            -- Check cooldown frame
+            local cd = icon.Cooldown or icon.cooldown
+            if cd then
+                if cd.Count then
+                    print("  cooldown.Count:", cd.Count:GetText() or "(empty)", "shown:", cd.Count:IsShown())
+                end
+                if cd.count then
+                    print("  cooldown.count:", cd.count:GetText() or "(empty)", "shown:", cd.count:IsShown())
+                end
+            end
+            
+            -- Deep search for any FontString with numbers
+            local function searchFS(parent, path, depth)
+                if depth > 4 then return end
+                if parent.GetRegions then
+                    for j = 1, parent:GetNumRegions() do
+                        local r = select(j, parent:GetRegions())
+                        if r and r:GetObjectType() == "FontString" then
+                            -- Use pcall to handle secret values during combat
+                            local success, text = pcall(function() return r:GetText() end)
+                            if success then
+                                local hasText = pcall(function() return text and text ~= "" end)
+                                if hasText and text then
+                                    print("  |cff00ff00FOUND FontString|r at", path, "text:", tostring(text), "shown:", r:IsShown())
+                                end
+                            else
+                                print("  |cffff8800SECRET FontString|r at", path, "(value hidden during combat)")
+                            end
+                        end
+                    end
+                end
+                if parent.GetChildren then
+                    for j = 1, parent:GetNumChildren() do
+                        local c = select(j, parent:GetChildren())
+                        if c then
+                            searchFS(c, path .. ".child" .. j, depth + 1)
+                        end
+                    end
+                end
+            end
+            searchFS(icon, "icon", 0)
+            
+            print("")
+        end
+    end
+    
+    print("|cff00ff00=== End Charge Debug ===|r")
+end

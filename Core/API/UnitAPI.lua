@@ -41,10 +41,6 @@ end
 -- Check if max health would be secret for this unit
 function UnitAPI:IsHealthMaxSecret(unit)
     if not unit then return true end
-    if not C_Secrets or not C_Secrets.ShouldUnitHealthMaxBeSecret then 
-        -- Fallback: player units should never be secret
-        return not UnitIsUnit(unit, "player")
-    end
     return C_Secrets.ShouldUnitHealthMaxBeSecret(unit)
 end
 
@@ -79,7 +75,6 @@ end
 
 -- Get power type secrecy
 function UnitAPI:GetPowerTypeSecrecy(powerType)
-    if not C_Secrets or not C_Secrets.GetPowerTypeSecrecy then return nil end
     return C_Secrets.GetPowerTypeSecrecy(powerType)
 end
 
@@ -120,7 +115,6 @@ end
 -- Check if unit comparison would be secret
 function UnitAPI:IsUnitComparisonSecret(unit1, unit2)
     if not unit1 or not unit2 then return true end
-    if not C_Secrets or not C_Secrets.ShouldUnitComparisonBeSecret then return false end
     return C_Secrets.ShouldUnitComparisonBeSecret(unit1, unit2)
 end
 

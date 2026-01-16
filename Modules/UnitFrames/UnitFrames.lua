@@ -4666,15 +4666,12 @@ local function MaskBlizzardFrame(unit)
         hooksecurefunc(frame, "Show", function(self)
             if blizzardFramesMasked[unit] then
                 self:SetAlpha(0)
-                -- Only modify mouse state outside combat to avoid taint
-                if not InCombatLockdown() then
-                    self:EnableMouse(false)
-                    if self.SetMouseClickEnabled then
-                        self:SetMouseClickEnabled(false)
-                    end
-                    if self.SetMouseMotionEnabled then
-                        self:SetMouseMotionEnabled(false)
-                    end
+                self:EnableMouse(false)
+                if self.SetMouseClickEnabled then
+                    self:SetMouseClickEnabled(false)
+                end
+                if self.SetMouseMotionEnabled then
+                    self:SetMouseMotionEnabled(false)
                 end
                 if self.Selection then
                     self.Selection:Hide()

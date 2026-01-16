@@ -2718,13 +2718,8 @@ function Chat:ShowCopyFrame()
     -- Filter out any nil or secret values before concatenating
     local cleanLines = {}
     for i, line in ipairs(lines) do
-        -- Skip nil values, secret values, and non-strings
-        if line ~= nil then
-            -- Check for secret values (Midnight API)
-            local isSecret = issecretvalue and issecretvalue(line)
-            if not isSecret and type(line) == "string" then
-                table.insert(cleanLines, line)
-            end
+        if line ~= nil and type(line) == "string" then
+            table.insert(cleanLines, line)
         end
     end
     

@@ -143,18 +143,12 @@ API.RESTRICTION_STATE = {
 
 -- ============================================================================
 -- SECRECY LEVEL CONSTANTS
--- Note: Enum.SecrecyLevel added in PTR 2 (Dec 22) - defensive check required
 -- ============================================================================
 
--- Safe reference to SecrecyLevel enum (may not exist on older PTR/Beta builds)
-local SecrecyLevelEnum = Enum and Enum.SecrecyLevel
-
-API.HAS_SECRECY_LEVEL_ENUM = SecrecyLevelEnum ~= nil
-
 API.SECRECY_LEVEL = {
-    NEVER = SecrecyLevelEnum and SecrecyLevelEnum.NeverSecret or 1,
-    ALWAYS = SecrecyLevelEnum and SecrecyLevelEnum.AlwaysSecret or 0,
-    CONTEXTUAL = SecrecyLevelEnum and SecrecyLevelEnum.Contextual or 2,
+    NEVER = Enum.SecrecyLevel.NeverSecret,
+    ALWAYS = Enum.SecrecyLevel.AlwaysSecret,
+    CONTEXTUAL = Enum.SecrecyLevel.Contextual,
 }
 
 -- ============================================================================

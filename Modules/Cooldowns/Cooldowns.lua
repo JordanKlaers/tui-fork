@@ -3796,6 +3796,19 @@ local function OnSpecChanged()
 end
 
 -- ============================================================================
+-- EXPORTS FOR SPELLBOOKHELPER
+-- ============================================================================
+
+Cooldowns.GetCurrentSpecEntries = GetCurrentSpecEntries
+Cooldowns.AddCustomEntry = AddCustomEntry
+Cooldowns.RemoveCustomEntry = RemoveCustomEntry
+Cooldowns.RebuildCustomTrackerIcons = RebuildCustomTrackerIcons
+Cooldowns.customTrackerIcons = customTrackerIcons
+
+-- Export to TweaksUI namespace so SpellbookHelper can find it
+TweaksUI.Cooldowns = Cooldowns
+
+-- ============================================================================
 -- VISIBILITY SYSTEM
 -- ============================================================================
 -- Handles show/hide based on combat, group, instance conditions
@@ -4862,6 +4875,11 @@ function Cooldowns:CreateTrackerPanel(trackerKey)
     if trackerKey == "buffs" then
         table.insert(tabs, { name = "Buff Display", key = "buffdisplay" })
         table.insert(tabs, { name = "Per-Icon", key = "highlights" })
+    end
+    
+    -- Add Per-Icon tab for cooldown trackers (Essential, Utility)
+    if trackerKey == "essential" or trackerKey == "utility" then
+        table.insert(tabs, { name = "Per-Icon", key = "cooldownhighlights" })
     end
     
     -- Helper function to refresh layout
@@ -6607,17 +6625,6 @@ function Cooldowns:CreateTrackerPanel(trackerKey)
             controls.labelOffsetYSlider:SetValue(labelOffsetY or 0)
             controls.labelOffsetYValue:SetText(tostring(labelOffsetY or 0))
             
-            -- Radial swipe settings (state-independent)
-            local radialSize = CooldownHighlights.GetRadialSwipeSize and CooldownHighlights:GetRadialSwipeSize(customTrackerKey, slotIndex)
-            local showRadialWhenReady = CooldownHighlights.GetShowRadialWhenReady and CooldownHighlights:GetShowRadialWhenReady(customTrackerKey, slotIndex)
-            
-            if radialSize then
-                controls.radialSizeInput:SetText(tostring(radialSize))
-            else
-                controls.radialSizeInput:SetText("64")
-            end
-            controls.showRadialWhenReadyCheck:SetChecked(showRadialWhenReady or false)
-            
             -- Initialize aspect dropdown
             UIDropDownMenu_Initialize(controls.aspectDropdown, function(self, level)
                 for _, opt in ipairs(ASPECT_OPTIONS) do
@@ -6992,6 +6999,1087 @@ function Cooldowns:CreateTrackerPanel(trackerKey)
         parent:SetHeight(math.abs(y) + 370)
     end
     
+    -- TAB: Per-Icon Settings for Cooldown Trackers (Essential, Utility)
+    -- ========================================
+    local function BuildCooldownHighlightsTab(parent)
+        local y = -10
+        local CooldownHighlights = TweaksUI.CooldownHighlights
+        local selectedSlot = nil
+        local currentState = "active"  -- "active" = ready, "inactive" = on cooldown
+        local slotRows = {}
+        
+        -- Aspect ratio presets
+        local ASPECT_OPTIONS = {
+            { label = "1:1 (Square)", value = "1:1" },
+            { label = "4:3", value = "4:3" },
+            { label = "3:4", value = "3:4" },
+            { label = "16:9 (Wide)", value = "16:9" },
+            { label = "9:16 (Tall)", value = "9:16" },
+            { label = "2:1", value = "2:1" },
+            { label = "1:2", value = "1:2" },
+            { label = "Custom", value = "custom" },
+        }
+        
+        -- Get the viewer name for this tracker
+        local viewerName = trackerInfo.name
+        local trackerDisplayName = trackerInfo.displayName
+        
+        -- Header
+        local header = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        header:SetPoint("TOPLEFT", 5, y)
+        header:SetText("Per-Icon Settings")
+        header:SetTextColor(1, 0.82, 0)
+        
+        -- Refresh button (at top right, script set later after RefreshSlotList is defined)
+        local refreshBtn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+        refreshBtn:SetPoint("TOPRIGHT", -5, y)
+        refreshBtn:SetSize(100, 20)
+        refreshBtn:SetText("Refresh List")
+        y = y - 24
+        
+        -- Hide Tracker checkbox
+        local hideTrackerCheck = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+        hideTrackerCheck:SetPoint("TOPLEFT", 5, y)
+        hideTrackerCheck:SetSize(24, 24)
+        hideTrackerCheck:SetChecked(CooldownHighlights and CooldownHighlights:IsTrackerHidden(trackerKey) or false)
+        hideTrackerCheck:SetScript("OnClick", function(self)
+            if CooldownHighlights then
+                CooldownHighlights:SetTrackerHidden(trackerKey, self:GetChecked())
+                Cooldowns:SaveSettings()
+            end
+        end)
+        
+        local hideTrackerLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        hideTrackerLabel:SetPoint("LEFT", hideTrackerCheck, "RIGHT", 2, 0)
+        hideTrackerLabel:SetText("Hide " .. trackerDisplayName .. " (use individual icons only)")
+        hideTrackerLabel:SetTextColor(0.9, 0.9, 0.9)
+        y = y - 26
+        
+        -- Slot list container
+        local listContainer = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+        listContainer:SetPoint("TOPLEFT", 5, y)
+        listContainer:SetSize(PANEL_WIDTH - 60, 90)
+        listContainer:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+        })
+        listContainer:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
+        listContainer:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+        
+        -- Create scroll frame inside list container
+        local scrollFrame = CreateFrame("ScrollFrame", nil, listContainer, "UIPanelScrollFrameTemplate")
+        scrollFrame:SetPoint("TOPLEFT", 2, -2)
+        scrollFrame:SetPoint("BOTTOMRIGHT", -22, 2)
+        
+        local scrollChild = CreateFrame("Frame", nil, scrollFrame)
+        scrollChild:SetWidth(PANEL_WIDTH - 84)
+        scrollChild:SetHeight(1)  -- Will be updated dynamically
+        scrollFrame:SetScrollChild(scrollChild)
+        
+        y = y - 100
+        
+        -- Controls container with backdrop (outer frame)
+        local controlsContainer = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+        controlsContainer:SetPoint("TOPLEFT", 5, y)
+        controlsContainer:SetSize(PANEL_WIDTH - 60, 560)
+        controlsContainer:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+        })
+        controlsContainer:SetBackdropColor(0.12, 0.12, 0.12, 0.9)
+        controlsContainer:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+        
+        -- Scroll frame inside container
+        local controlsScrollFrame = CreateFrame("ScrollFrame", nil, controlsContainer, "UIPanelScrollFrameTemplate")
+        controlsScrollFrame:SetPoint("TOPLEFT", 2, -2)
+        controlsScrollFrame:SetPoint("BOTTOMRIGHT", -22, 2)
+        
+        -- Controls panel as scroll child (content area)
+        local controlsPanel = CreateFrame("Frame", nil, controlsScrollFrame)
+        controlsPanel:SetSize(PANEL_WIDTH - 84, 820)  -- Height for full content
+        controlsScrollFrame:SetScrollChild(controlsPanel)
+        
+        -- "No Selection" label (on container, not scroll child, so it stays centered)
+        local noSelectionLabel = controlsContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        noSelectionLabel:SetPoint("CENTER")
+        noSelectionLabel:SetText("Select a cooldown slot above")
+        noSelectionLabel:SetTextColor(0.5, 0.5, 0.5)
+        
+        -- All controls
+        local controls = {}
+        
+        -- Slot header with icon preview
+        controls.header = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        controls.header:SetPoint("TOPLEFT", 10, -8)
+        controls.header:SetTextColor(1, 0.82, 0)
+        controls.header:Hide()
+        
+        controls.iconPreview = controlsPanel:CreateTexture(nil, "ARTWORK")
+        controls.iconPreview:SetPoint("LEFT", controls.header, "RIGHT", 8, 0)
+        controls.iconPreview:SetSize(20, 20)
+        controls.iconPreview:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        controls.iconPreview:Hide()
+        
+        -- Enable checkbox
+        controls.enableCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        controls.enableCheck:SetPoint("TOPLEFT", 10, -30)
+        controls.enableCheck:SetSize(24, 24)
+        controls.enableCheck:Hide()
+        
+        controls.enableLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.enableLabel:SetPoint("LEFT", controls.enableCheck, "RIGHT", 2, 0)
+        controls.enableLabel:SetText("Enable Individual Icon")
+        controls.enableLabel:SetTextColor(0.9, 0.9, 0.9)
+        controls.enableLabel:Hide()
+        
+        -- Hide in tracker checkbox (hide main tracker icon, keep highlight visible)
+        controls.hideCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        controls.hideCheck:SetPoint("LEFT", controls.enableLabel, "RIGHT", 20, 0)
+        controls.hideCheck:SetSize(24, 24)
+        controls.hideCheck:Hide()
+        
+        controls.hideLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.hideLabel:SetPoint("LEFT", controls.hideCheck, "RIGHT", 2, 0)
+        controls.hideLabel:SetText("Hide in Tracker")
+        controls.hideLabel:SetTextColor(0.9, 0.9, 0.9)
+        controls.hideLabel:Hide()
+        
+        -- State tabs (Ready / On Cooldown)
+        controls.stateLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.stateLabel:SetPoint("TOPLEFT", 10, -58)
+        controls.stateLabel:SetText("Configure State:")
+        controls.stateLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.stateLabel:Hide()
+        
+        controls.activeBtn = CreateFrame("Button", nil, controlsPanel, "UIPanelButtonTemplate")
+        controls.activeBtn:SetPoint("LEFT", controls.stateLabel, "RIGHT", 8, 0)
+        controls.activeBtn:SetSize(70, 20)
+        controls.activeBtn:SetText("Ready")
+        controls.activeBtn:Hide()
+        
+        controls.inactiveBtn = CreateFrame("Button", nil, controlsPanel, "UIPanelButtonTemplate")
+        controls.inactiveBtn:SetPoint("LEFT", controls.activeBtn, "RIGHT", 4, 0)
+        controls.inactiveBtn:SetSize(90, 20)
+        controls.inactiveBtn:SetText("On Cooldown")
+        controls.inactiveBtn:Hide()
+        
+        -- Show when checkbox
+        controls.showCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        controls.showCheck:SetPoint("TOPLEFT", 10, -85)
+        controls.showCheck:SetSize(24, 24)
+        controls.showCheck:Hide()
+        
+        controls.showLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.showLabel:SetPoint("LEFT", controls.showCheck, "RIGHT", 2, 0)
+        controls.showLabel:SetText("Show when Ready")
+        controls.showLabel:SetTextColor(0.9, 0.9, 0.9)
+        controls.showLabel:Hide()
+        
+        -- Size slider
+        controls.sizeLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.sizeLabel:SetPoint("TOPLEFT", 10, -115)
+        controls.sizeLabel:SetText("Size:")
+        controls.sizeLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.sizeLabel:Hide()
+        
+        controls.sizeSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        controls.sizeSlider:SetPoint("LEFT", controls.sizeLabel, "RIGHT", 15, 0)
+        controls.sizeSlider:SetSize(90, 16)
+        controls.sizeSlider:SetMinMaxValues(24, 128)
+        controls.sizeSlider:SetValueStep(2)
+        controls.sizeSlider:SetObeyStepOnDrag(true)
+        controls.sizeSlider.Low:SetText("")
+        controls.sizeSlider.High:SetText("")
+        controls.sizeSlider.Text:SetText("")
+        controls.sizeSlider:Hide()
+        
+        controls.sizeValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.sizeValue:SetPoint("LEFT", controls.sizeSlider, "RIGHT", 8, 0)
+        controls.sizeValue:SetTextColor(1, 1, 1)
+        controls.sizeValue:Hide()
+        
+        -- Opacity slider
+        controls.opacityLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.opacityLabel:SetPoint("TOPLEFT", 10, -145)
+        controls.opacityLabel:SetText("Opacity:")
+        controls.opacityLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.opacityLabel:Hide()
+        
+        controls.opacitySlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        controls.opacitySlider:SetPoint("LEFT", controls.opacityLabel, "RIGHT", 5, 0)
+        controls.opacitySlider:SetSize(90, 16)
+        controls.opacitySlider:SetMinMaxValues(0.1, 1.0)
+        controls.opacitySlider:SetValueStep(0.05)
+        controls.opacitySlider:SetObeyStepOnDrag(true)
+        controls.opacitySlider.Low:SetText("")
+        controls.opacitySlider.High:SetText("")
+        controls.opacitySlider.Text:SetText("")
+        controls.opacitySlider:Hide()
+        
+        controls.opacityValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.opacityValue:SetPoint("LEFT", controls.opacitySlider, "RIGHT", 8, 0)
+        controls.opacityValue:SetTextColor(1, 1, 1)
+        controls.opacityValue:Hide()
+        
+        -- Desaturate checkbox
+        controls.desatCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        controls.desatCheck:SetPoint("TOPLEFT", 10, -175)
+        controls.desatCheck:SetSize(24, 24)
+        controls.desatCheck:Hide()
+        
+        controls.desatLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.desatLabel:SetPoint("LEFT", controls.desatCheck, "RIGHT", 2, 0)
+        controls.desatLabel:SetText("Desaturate (grayscale)")
+        controls.desatLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.desatLabel:Hide()
+        
+        -- Aspect ratio dropdown
+        controls.aspectLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.aspectLabel:SetPoint("TOPLEFT", 10, -205)
+        controls.aspectLabel:SetText("Aspect Ratio:")
+        controls.aspectLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.aspectLabel:Hide()
+        
+        controls.aspectDropdown = CreateFrame("Frame", nil, controlsPanel, "UIDropDownMenuTemplate")
+        controls.aspectDropdown:SetPoint("TOPLEFT", 60, -200)
+        UIDropDownMenu_SetWidth(controls.aspectDropdown, 100)
+        controls.aspectDropdown:Hide()
+        
+        -- Custom aspect ratio inputs
+        controls.customLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.customLabel:SetPoint("TOPLEFT", 10, -235)
+        controls.customLabel:SetText("Custom W:")
+        controls.customLabel:SetTextColor(0.7, 0.7, 0.7)
+        controls.customLabel:Hide()
+        
+        controls.customW = CreateFrame("EditBox", nil, controlsPanel, "InputBoxTemplate")
+        controls.customW:SetPoint("LEFT", controls.customLabel, "RIGHT", 2, 0)
+        controls.customW:SetSize(30, 18)
+        controls.customW:SetAutoFocus(false)
+        controls.customW:SetNumeric(true)
+        controls.customW:SetMaxLetters(3)
+        controls.customW:Hide()
+        
+        controls.customSep = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.customSep:SetPoint("LEFT", controls.customW, "RIGHT", 4, 0)
+        controls.customSep:SetText("H:")
+        controls.customSep:SetTextColor(0.7, 0.7, 0.7)
+        controls.customSep:Hide()
+        
+        controls.customH = CreateFrame("EditBox", nil, controlsPanel, "InputBoxTemplate")
+        controls.customH:SetPoint("LEFT", controls.customSep, "RIGHT", 2, 0)
+        controls.customH:SetSize(30, 18)
+        controls.customH:SetAutoFocus(false)
+        controls.customH:SetNumeric(true)
+        controls.customH:SetMaxLetters(3)
+        controls.customH:Hide()
+        
+        -- =====================================================
+        -- Custom Label Controls (Accessibility feature)
+        -- =====================================================
+        controls.labelHeader = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        controls.labelHeader:SetPoint("TOPLEFT", 10, -305)
+        controls.labelHeader:SetText("Custom Label (Accessibility)")
+        controls.labelHeader:SetTextColor(1, 0.82, 0)
+        controls.labelHeader:Hide()
+        
+        controls.labelEnableCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        controls.labelEnableCheck:SetPoint("TOPLEFT", 10, -325)
+        controls.labelEnableCheck:SetSize(24, 24)
+        controls.labelEnableCheck:Hide()
+        
+        controls.labelEnableLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.labelEnableLabel:SetPoint("LEFT", controls.labelEnableCheck, "RIGHT", 2, 0)
+        controls.labelEnableLabel:SetText("Show Custom Label")
+        controls.labelEnableLabel:SetTextColor(0.9, 0.9, 0.9)
+        controls.labelEnableLabel:Hide()
+        
+        controls.labelTextLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.labelTextLabel:SetPoint("TOPLEFT", 10, -355)
+        controls.labelTextLabel:SetText("Text:")
+        controls.labelTextLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.labelTextLabel:Hide()
+        
+        controls.labelTextBox = CreateFrame("EditBox", nil, controlsPanel, "InputBoxTemplate")
+        controls.labelTextBox:SetPoint("LEFT", controls.labelTextLabel, "RIGHT", 8, 0)
+        controls.labelTextBox:SetSize(120, 18)
+        controls.labelTextBox:SetAutoFocus(false)
+        controls.labelTextBox:SetMaxLetters(20)
+        controls.labelTextBox:Hide()
+        
+        controls.labelSizeLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.labelSizeLabel:SetPoint("TOPLEFT", 10, -380)
+        controls.labelSizeLabel:SetText("Font Size:")
+        controls.labelSizeLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.labelSizeLabel:Hide()
+        
+        controls.labelSizeSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        controls.labelSizeSlider:SetPoint("LEFT", controls.labelSizeLabel, "RIGHT", 5, 0)
+        controls.labelSizeSlider:SetSize(80, 16)
+        controls.labelSizeSlider:SetMinMaxValues(8, 32)
+        controls.labelSizeSlider:SetValueStep(1)
+        controls.labelSizeSlider:SetObeyStepOnDrag(true)
+        controls.labelSizeSlider.Low:SetText("")
+        controls.labelSizeSlider.High:SetText("")
+        controls.labelSizeSlider.Text:SetText("")
+        controls.labelSizeSlider:Hide()
+        
+        controls.labelSizeValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.labelSizeValue:SetPoint("LEFT", controls.labelSizeSlider, "RIGHT", 8, 0)
+        controls.labelSizeValue:SetTextColor(1, 1, 1)
+        controls.labelSizeValue:Hide()
+        
+        controls.labelColorLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.labelColorLabel:SetPoint("TOPLEFT", 10, -405)
+        controls.labelColorLabel:SetText("Color:")
+        controls.labelColorLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.labelColorLabel:Hide()
+        
+        controls.labelColorBtn = CreateFrame("Button", nil, controlsPanel, "BackdropTemplate")
+        controls.labelColorBtn:SetPoint("LEFT", controls.labelColorLabel, "RIGHT", 8, 0)
+        controls.labelColorBtn:SetSize(20, 20)
+        controls.labelColorBtn:SetBackdrop({ 
+            bgFile = "Interface\\BUTTONS\\WHITE8X8", 
+            edgeFile = "Interface\\BUTTONS\\WHITE8X8", 
+            edgeSize = 1 
+        })
+        controls.labelColorBtn:SetBackdropColor(1, 1, 1, 1)
+        controls.labelColorBtn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+        controls.labelColorBtn:Hide()
+        
+        controls.labelOffsetLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.labelOffsetLabel:SetPoint("TOPLEFT", 10, -430)
+        controls.labelOffsetLabel:SetText("Offset X:")
+        controls.labelOffsetLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.labelOffsetLabel:Hide()
+        
+        controls.labelOffsetXSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        controls.labelOffsetXSlider:SetPoint("LEFT", controls.labelOffsetLabel, "RIGHT", 5, 0)
+        controls.labelOffsetXSlider:SetSize(100, 16)
+        controls.labelOffsetXSlider:SetMinMaxValues(-100, 100)
+        controls.labelOffsetXSlider:SetValueStep(1)
+        controls.labelOffsetXSlider:SetObeyStepOnDrag(true)
+        controls.labelOffsetXSlider.Low:SetText("")
+        controls.labelOffsetXSlider.High:SetText("")
+        controls.labelOffsetXSlider.Text:SetText("")
+        controls.labelOffsetXSlider:Hide()
+        
+        controls.labelOffsetXValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.labelOffsetXValue:SetPoint("LEFT", controls.labelOffsetXSlider, "RIGHT", 5, 0)
+        controls.labelOffsetXValue:SetTextColor(1, 1, 1)
+        controls.labelOffsetXValue:Hide()
+        
+        controls.labelOffsetYLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.labelOffsetYLabel:SetPoint("TOPLEFT", 10, -455)
+        controls.labelOffsetYLabel:SetText("Offset Y:")
+        controls.labelOffsetYLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.labelOffsetYLabel:Hide()
+        
+        controls.labelOffsetYSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        controls.labelOffsetYSlider:SetPoint("LEFT", controls.labelOffsetYLabel, "RIGHT", 5, 0)
+        controls.labelOffsetYSlider:SetSize(100, 16)
+        controls.labelOffsetYSlider:SetMinMaxValues(-100, 100)
+        controls.labelOffsetYSlider:SetValueStep(1)
+        controls.labelOffsetYSlider:SetObeyStepOnDrag(true)
+        controls.labelOffsetYSlider.Low:SetText("")
+        controls.labelOffsetYSlider.High:SetText("")
+        controls.labelOffsetYSlider.Text:SetText("")
+        controls.labelOffsetYSlider:Hide()
+        
+        controls.labelOffsetYValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.labelOffsetYValue:SetPoint("LEFT", controls.labelOffsetYSlider, "RIGHT", 5, 0)
+        controls.labelOffsetYValue:SetTextColor(1, 1, 1)
+        controls.labelOffsetYValue:Hide()
+        
+        -- =====================================================
+        -- Per-Icon Text Controls (Cooldown Timer)
+        -- =====================================================
+        controls.cooldownTextHeader = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        controls.cooldownTextHeader:SetPoint("TOPLEFT", 200, -305)
+        controls.cooldownTextHeader:SetText("Cooldown Text")
+        controls.cooldownTextHeader:SetTextColor(1, 0.82, 0)
+        controls.cooldownTextHeader:Hide()
+        
+        controls.cooldownTextScaleLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.cooldownTextScaleLabel:SetPoint("TOPLEFT", 200, -325)
+        controls.cooldownTextScaleLabel:SetText("Scale:")
+        controls.cooldownTextScaleLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.cooldownTextScaleLabel:Hide()
+        
+        controls.cooldownTextSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        controls.cooldownTextSlider:SetPoint("LEFT", controls.cooldownTextScaleLabel, "RIGHT", 10, 0)
+        controls.cooldownTextSlider:SetSize(70, 16)
+        controls.cooldownTextSlider:SetMinMaxValues(0.5, 2.0)
+        controls.cooldownTextSlider:SetValueStep(0.1)
+        controls.cooldownTextSlider:SetObeyStepOnDrag(true)
+        controls.cooldownTextSlider.Low:SetText("")
+        controls.cooldownTextSlider.High:SetText("")
+        controls.cooldownTextSlider.Text:SetText("")
+        controls.cooldownTextSlider:Hide()
+        
+        controls.cooldownTextValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.cooldownTextValue:SetPoint("LEFT", controls.cooldownTextSlider, "RIGHT", 5, 0)
+        controls.cooldownTextValue:SetTextColor(1, 1, 1)
+        controls.cooldownTextValue:Hide()
+        
+        controls.cooldownTextColorLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.cooldownTextColorLabel:SetPoint("TOPLEFT", 200, -350)
+        controls.cooldownTextColorLabel:SetText("Color:")
+        controls.cooldownTextColorLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.cooldownTextColorLabel:Hide()
+        
+        controls.cooldownTextColorBtn = CreateFrame("Button", nil, controlsPanel, "BackdropTemplate")
+        controls.cooldownTextColorBtn:SetPoint("LEFT", controls.cooldownTextColorLabel, "RIGHT", 10, 0)
+        controls.cooldownTextColorBtn:SetSize(24, 16)
+        controls.cooldownTextColorBtn:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1})
+        controls.cooldownTextColorBtn:SetBackdropColor(1, 1, 1, 1)
+        controls.cooldownTextColorBtn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+        controls.cooldownTextColorBtn:Hide()
+        
+        controls.cooldownTextOffsetXLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.cooldownTextOffsetXLabel:SetPoint("TOPLEFT", 200, -375)
+        controls.cooldownTextOffsetXLabel:SetText("Offset X:")
+        controls.cooldownTextOffsetXLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.cooldownTextOffsetXLabel:Hide()
+        
+        controls.cooldownTextOffsetXSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        controls.cooldownTextOffsetXSlider:SetPoint("LEFT", controls.cooldownTextOffsetXLabel, "RIGHT", 5, 0)
+        controls.cooldownTextOffsetXSlider:SetSize(100, 16)
+        controls.cooldownTextOffsetXSlider:SetMinMaxValues(-100, 100)
+        controls.cooldownTextOffsetXSlider:SetValueStep(1)
+        controls.cooldownTextOffsetXSlider:SetObeyStepOnDrag(true)
+        controls.cooldownTextOffsetXSlider.Low:SetText("")
+        controls.cooldownTextOffsetXSlider.High:SetText("")
+        controls.cooldownTextOffsetXSlider.Text:SetText("")
+        controls.cooldownTextOffsetXSlider:Hide()
+        
+        controls.cooldownTextOffsetXValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.cooldownTextOffsetXValue:SetPoint("LEFT", controls.cooldownTextOffsetXSlider, "RIGHT", 5, 0)
+        controls.cooldownTextOffsetXValue:SetTextColor(1, 1, 1)
+        controls.cooldownTextOffsetXValue:Hide()
+        
+        controls.cooldownTextOffsetYLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.cooldownTextOffsetYLabel:SetPoint("TOPLEFT", 200, -400)
+        controls.cooldownTextOffsetYLabel:SetText("Offset Y:")
+        controls.cooldownTextOffsetYLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.cooldownTextOffsetYLabel:Hide()
+        
+        controls.cooldownTextOffsetYSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        controls.cooldownTextOffsetYSlider:SetPoint("LEFT", controls.cooldownTextOffsetYLabel, "RIGHT", 5, 0)
+        controls.cooldownTextOffsetYSlider:SetSize(100, 16)
+        controls.cooldownTextOffsetYSlider:SetMinMaxValues(-100, 100)
+        controls.cooldownTextOffsetYSlider:SetValueStep(1)
+        controls.cooldownTextOffsetYSlider:SetObeyStepOnDrag(true)
+        controls.cooldownTextOffsetYSlider.Low:SetText("")
+        controls.cooldownTextOffsetYSlider.High:SetText("")
+        controls.cooldownTextOffsetYSlider.Text:SetText("")
+        controls.cooldownTextOffsetYSlider:Hide()
+        
+        controls.cooldownTextOffsetYValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.cooldownTextOffsetYValue:SetPoint("LEFT", controls.cooldownTextOffsetYSlider, "RIGHT", 5, 0)
+        controls.cooldownTextOffsetYValue:SetTextColor(1, 1, 1)
+        controls.cooldownTextOffsetYValue:Hide()
+        
+        -- =====================================================
+        -- Per-Icon Text Controls (Count/Charge Text)
+        -- =====================================================
+        controls.countTextHeader = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        controls.countTextHeader:SetPoint("TOPLEFT", 200, -430)
+        controls.countTextHeader:SetText("Count/Charge Text")
+        controls.countTextHeader:SetTextColor(1, 0.82, 0)
+        controls.countTextHeader:Hide()
+        
+        controls.countTextScaleLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.countTextScaleLabel:SetPoint("TOPLEFT", 200, -450)
+        controls.countTextScaleLabel:SetText("Scale:")
+        controls.countTextScaleLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.countTextScaleLabel:Hide()
+        
+        controls.countTextSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        controls.countTextSlider:SetPoint("LEFT", controls.countTextScaleLabel, "RIGHT", 10, 0)
+        controls.countTextSlider:SetSize(70, 16)
+        controls.countTextSlider:SetMinMaxValues(0.5, 2.0)
+        controls.countTextSlider:SetValueStep(0.1)
+        controls.countTextSlider:SetObeyStepOnDrag(true)
+        controls.countTextSlider.Low:SetText("")
+        controls.countTextSlider.High:SetText("")
+        controls.countTextSlider.Text:SetText("")
+        controls.countTextSlider:Hide()
+        
+        controls.countTextValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.countTextValue:SetPoint("LEFT", controls.countTextSlider, "RIGHT", 5, 0)
+        controls.countTextValue:SetTextColor(1, 1, 1)
+        controls.countTextValue:Hide()
+        
+        controls.countTextColorLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.countTextColorLabel:SetPoint("TOPLEFT", 200, -475)
+        controls.countTextColorLabel:SetText("Color:")
+        controls.countTextColorLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.countTextColorLabel:Hide()
+        
+        controls.countTextColorBtn = CreateFrame("Button", nil, controlsPanel, "BackdropTemplate")
+        controls.countTextColorBtn:SetPoint("LEFT", controls.countTextColorLabel, "RIGHT", 10, 0)
+        controls.countTextColorBtn:SetSize(24, 16)
+        controls.countTextColorBtn:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1})
+        controls.countTextColorBtn:SetBackdropColor(1, 1, 1, 1)
+        controls.countTextColorBtn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+        controls.countTextColorBtn:Hide()
+        
+        controls.countTextOffsetXLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.countTextOffsetXLabel:SetPoint("TOPLEFT", 200, -500)
+        controls.countTextOffsetXLabel:SetText("Offset X:")
+        controls.countTextOffsetXLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.countTextOffsetXLabel:Hide()
+        
+        controls.countTextOffsetXSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        controls.countTextOffsetXSlider:SetPoint("LEFT", controls.countTextOffsetXLabel, "RIGHT", 5, 0)
+        controls.countTextOffsetXSlider:SetSize(100, 16)
+        controls.countTextOffsetXSlider:SetMinMaxValues(-100, 100)
+        controls.countTextOffsetXSlider:SetValueStep(1)
+        controls.countTextOffsetXSlider:SetObeyStepOnDrag(true)
+        controls.countTextOffsetXSlider.Low:SetText("")
+        controls.countTextOffsetXSlider.High:SetText("")
+        controls.countTextOffsetXSlider.Text:SetText("")
+        controls.countTextOffsetXSlider:Hide()
+        
+        controls.countTextOffsetXValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.countTextOffsetXValue:SetPoint("LEFT", controls.countTextOffsetXSlider, "RIGHT", 5, 0)
+        controls.countTextOffsetXValue:SetTextColor(1, 1, 1)
+        controls.countTextOffsetXValue:Hide()
+        
+        controls.countTextOffsetYLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.countTextOffsetYLabel:SetPoint("TOPLEFT", 200, -525)
+        controls.countTextOffsetYLabel:SetText("Offset Y:")
+        controls.countTextOffsetYLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.countTextOffsetYLabel:Hide()
+        
+        controls.countTextOffsetYSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        controls.countTextOffsetYSlider:SetPoint("LEFT", controls.countTextOffsetYLabel, "RIGHT", 5, 0)
+        controls.countTextOffsetYSlider:SetSize(100, 16)
+        controls.countTextOffsetYSlider:SetMinMaxValues(-100, 100)
+        controls.countTextOffsetYSlider:SetValueStep(1)
+        controls.countTextOffsetYSlider:SetObeyStepOnDrag(true)
+        controls.countTextOffsetYSlider.Low:SetText("")
+        controls.countTextOffsetYSlider.High:SetText("")
+        controls.countTextOffsetYSlider.Text:SetText("")
+        controls.countTextOffsetYSlider:Hide()
+        
+        controls.countTextOffsetYValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.countTextOffsetYValue:SetPoint("LEFT", controls.countTextOffsetYSlider, "RIGHT", 5, 0)
+        controls.countTextOffsetYValue:SetTextColor(1, 1, 1)
+        controls.countTextOffsetYValue:Hide()
+        
+        -- Helper to show/hide all controls
+        local function ShowControls(show)
+            noSelectionLabel:SetShown(not show)
+            for _, ctrl in pairs(controls) do
+                if ctrl.SetShown then ctrl:SetShown(show)
+                elseif ctrl.Show then
+                    if show then ctrl:Show() else ctrl:Hide() end
+                end
+            end
+        end
+        
+        -- Helper to update state button appearance
+        local function UpdateStateButtons()
+            if currentState == "active" then
+                controls.activeBtn:SetNormalFontObject("GameFontHighlight")
+                controls.inactiveBtn:SetNormalFontObject("GameFontNormal")
+                controls.showLabel:SetText("Show when ability is Ready")
+            else
+                controls.activeBtn:SetNormalFontObject("GameFontNormal")
+                controls.inactiveBtn:SetNormalFontObject("GameFontHighlight")
+                controls.showLabel:SetText("Show when ability is On Cooldown")
+            end
+        end
+        
+        -- Helper to update custom aspect visibility
+        local function UpdateCustomAspectVisibility(aspectRatio)
+            local showCustom = (aspectRatio == "custom")
+            controls.customLabel:SetShown(showCustom)
+            controls.customW:SetShown(showCustom)
+            controls.customSep:SetShown(showCustom)
+            controls.customH:SetShown(showCustom)
+        end
+        
+        -- Update controls for selected slot
+        local function UpdateControlsForSlot(slotIndex)
+            if not slotIndex or not CooldownHighlights then
+                ShowControls(false)
+                return
+            end
+            
+            ShowControls(true)
+            UpdateStateButtons()
+            
+            -- Get slot info for icon preview - use same order as list (GetOrderedIcons)
+            local viewer = _G[viewerName]
+            if viewer then
+                local icons = GetOrderedIcons(viewer, trackerKey)
+                local icon = icons[slotIndex]
+                if icon then
+                    local textureObj = icon.Icon or icon.icon
+                    if textureObj then
+                        pcall(function()
+                            controls.iconPreview:SetTexture(textureObj:GetTexture())
+                        end)
+                    end
+                end
+            end
+            
+            controls.header:SetText("Slot #" .. slotIndex)
+            
+            -- Get settings for current state
+            local isEnabled = CooldownHighlights:IsEnabled(trackerKey, slotIndex)
+            local showState = CooldownHighlights:GetShowState(trackerKey, slotIndex, currentState)
+            local size = CooldownHighlights:GetSize(trackerKey, slotIndex, currentState)
+            local opacity = CooldownHighlights:GetOpacity(trackerKey, slotIndex, currentState)
+            local saturated = CooldownHighlights:GetSaturation(trackerKey, slotIndex, currentState)
+            local aspectRatio = CooldownHighlights:GetAspectRatio(trackerKey, slotIndex, currentState)
+            local customW, customH = CooldownHighlights:GetCustomAspectRatio(trackerKey, slotIndex, currentState)
+            
+            -- Clear slider scripts BEFORE setting values to prevent old callbacks from firing
+            controls.sizeSlider:SetScript("OnValueChanged", nil)
+            controls.opacitySlider:SetScript("OnValueChanged", nil)
+            controls.labelSizeSlider:SetScript("OnValueChanged", nil)
+            controls.labelOffsetXSlider:SetScript("OnValueChanged", nil)
+            controls.labelOffsetYSlider:SetScript("OnValueChanged", nil)
+            controls.cooldownTextSlider:SetScript("OnValueChanged", nil)
+            controls.cooldownTextOffsetXSlider:SetScript("OnValueChanged", nil)
+            controls.cooldownTextOffsetYSlider:SetScript("OnValueChanged", nil)
+            controls.countTextSlider:SetScript("OnValueChanged", nil)
+            controls.countTextOffsetXSlider:SetScript("OnValueChanged", nil)
+            controls.countTextOffsetYSlider:SetScript("OnValueChanged", nil)
+            
+            -- Update control values
+            controls.enableCheck:SetChecked(isEnabled)
+            controls.hideCheck:SetChecked(CooldownHighlights:IsIconHidden(trackerKey, slotIndex))
+            controls.showCheck:SetChecked(showState)
+            controls.sizeSlider:SetValue(size)
+            controls.sizeValue:SetText(tostring(size))
+            controls.opacitySlider:SetValue(opacity)
+            controls.opacityValue:SetText(math.floor(opacity * 100) .. "%")
+            controls.desatCheck:SetChecked(not saturated)
+            controls.customW:SetText(tostring(customW))
+            controls.customH:SetText(tostring(customH))
+            
+            -- Per-icon text settings (state-independent)
+            local cdTextScale = CooldownHighlights:GetCooldownTextScale(trackerKey, slotIndex)
+            local cdTextColor = CooldownHighlights:GetCooldownTextColor(trackerKey, slotIndex)
+            local cdTextOffsetX = CooldownHighlights:GetCooldownTextOffsetX(trackerKey, slotIndex)
+            local cdTextOffsetY = CooldownHighlights:GetCooldownTextOffsetY(trackerKey, slotIndex)
+            
+            controls.cooldownTextSlider:SetValue(cdTextScale or 1.0)
+            controls.cooldownTextValue:SetText(string.format("%.1f", cdTextScale or 1.0))
+            controls.cooldownTextColorBtn:SetBackdropColor(cdTextColor[1] or 1, cdTextColor[2] or 1, cdTextColor[3] or 1, 1)
+            controls.cooldownTextOffsetXSlider:SetValue(cdTextOffsetX or 0)
+            controls.cooldownTextOffsetXValue:SetText(tostring(cdTextOffsetX or 0))
+            controls.cooldownTextOffsetYSlider:SetValue(cdTextOffsetY or 0)
+            controls.cooldownTextOffsetYValue:SetText(tostring(cdTextOffsetY or 0))
+            
+            local cntTextScale = CooldownHighlights:GetCountTextScale(trackerKey, slotIndex)
+            local cntTextColor = CooldownHighlights:GetCountTextColor(trackerKey, slotIndex)
+            local cntTextOffsetX = CooldownHighlights:GetCountTextOffsetX(trackerKey, slotIndex)
+            local cntTextOffsetY = CooldownHighlights:GetCountTextOffsetY(trackerKey, slotIndex)
+            
+            controls.countTextSlider:SetValue(cntTextScale or 1.0)
+            controls.countTextValue:SetText(string.format("%.1f", cntTextScale or 1.0))
+            controls.countTextColorBtn:SetBackdropColor(cntTextColor[1] or 1, cntTextColor[2] or 1, cntTextColor[3] or 1, 1)
+            controls.countTextOffsetXSlider:SetValue(cntTextOffsetX or 0)
+            controls.countTextOffsetXValue:SetText(tostring(cntTextOffsetX or 0))
+            controls.countTextOffsetYSlider:SetValue(cntTextOffsetY or 0)
+            controls.countTextOffsetYValue:SetText(tostring(cntTextOffsetY or 0))
+            
+            -- Label settings (state-independent)
+            local labelEnabled = CooldownHighlights:GetLabelEnabled(trackerKey, slotIndex)
+            local labelText = CooldownHighlights:GetLabelText(trackerKey, slotIndex)
+            local labelSize = CooldownHighlights:GetLabelFontSize(trackerKey, slotIndex)
+            local labelColor = CooldownHighlights:GetLabelColor(trackerKey, slotIndex)
+            local labelOffsetX = CooldownHighlights:GetLabelOffsetX(trackerKey, slotIndex)
+            local labelOffsetY = CooldownHighlights:GetLabelOffsetY(trackerKey, slotIndex)
+            
+            controls.labelEnableCheck:SetChecked(labelEnabled)
+            controls.labelTextBox:SetText(labelText or "")
+            controls.labelSizeSlider:SetValue(labelSize or 14)
+            controls.labelSizeValue:SetText(tostring(labelSize or 14))
+            controls.labelColorBtn:SetBackdropColor(labelColor[1] or 1, labelColor[2] or 1, labelColor[3] or 1, labelColor[4] or 1)
+            controls.labelOffsetXSlider:SetValue(labelOffsetX or 0)
+            controls.labelOffsetXValue:SetText(tostring(labelOffsetX or 0))
+            controls.labelOffsetYSlider:SetValue(labelOffsetY or 0)
+            controls.labelOffsetYValue:SetText(tostring(labelOffsetY or 0))
+            
+            -- Initialize aspect dropdown
+            UIDropDownMenu_Initialize(controls.aspectDropdown, function(self, level)
+                for _, opt in ipairs(ASPECT_OPTIONS) do
+                    local info = UIDropDownMenu_CreateInfo()
+                    info.text = opt.label
+                    info.value = opt.value
+                    info.func = function(self)
+                        CooldownHighlights:SetAspectRatio(trackerKey, slotIndex, currentState, self.value)
+                        UIDropDownMenu_SetText(controls.aspectDropdown, self:GetText())
+                        UpdateCustomAspectVisibility(self.value)
+                    end
+                    info.checked = (aspectRatio == opt.value)
+                    UIDropDownMenu_AddButton(info, level)
+                end
+            end)
+            
+            -- Set dropdown text
+            for _, opt in ipairs(ASPECT_OPTIONS) do
+                if opt.value == aspectRatio then
+                    UIDropDownMenu_SetText(controls.aspectDropdown, opt.label)
+                    break
+                end
+            end
+            
+            UpdateCustomAspectVisibility(aspectRatio)
+            
+            -- Wire up control callbacks
+            controls.enableCheck:SetScript("OnClick", function(self)
+                CooldownHighlights:EnableHighlight(trackerKey, slotIndex, self:GetChecked())
+                Cooldowns:SaveSettings()
+            end)
+            
+            controls.activeBtn:SetScript("OnClick", function()
+                currentState = "active"
+                UpdateControlsForSlot(slotIndex)
+            end)
+            
+            controls.inactiveBtn:SetScript("OnClick", function()
+                currentState = "inactive"
+                UpdateControlsForSlot(slotIndex)
+            end)
+            
+            controls.showCheck:SetScript("OnClick", function(self)
+                CooldownHighlights:SetShowState(trackerKey, slotIndex, currentState, self:GetChecked())
+                Cooldowns:SaveSettings()
+            end)
+            
+            controls.sizeSlider:SetScript("OnValueChanged", function(self, value)
+                value = math.floor(value)
+                controls.sizeValue:SetText(tostring(value))
+                CooldownHighlights:SetSize(trackerKey, slotIndex, currentState, value)
+                Cooldowns:SaveSettings()
+            end)
+            
+            controls.opacitySlider:SetScript("OnValueChanged", function(self, value)
+                controls.opacityValue:SetText(math.floor(value * 100) .. "%")
+                CooldownHighlights:SetOpacity(trackerKey, slotIndex, currentState, value)
+                Cooldowns:SaveSettings()
+            end)
+            
+            controls.desatCheck:SetScript("OnClick", function(self)
+                CooldownHighlights:SetSaturation(trackerKey, slotIndex, currentState, not self:GetChecked())
+                Cooldowns:SaveSettings()
+            end)
+            
+            local function ApplyCustomAspect()
+                local w = tonumber(controls.customW:GetText()) or 1
+                local h = tonumber(controls.customH:GetText()) or 1
+                if w < 1 then w = 1 end
+                if h < 1 then h = 1 end
+                CooldownHighlights:SetCustomAspectRatio(trackerKey, slotIndex, currentState, w, h)
+            end
+            
+            controls.customW:SetScript("OnEnterPressed", function(self)
+                self:ClearFocus()
+                ApplyCustomAspect()
+            end)
+            controls.customW:SetScript("OnEditFocusLost", ApplyCustomAspect)
+            
+            controls.customH:SetScript("OnEnterPressed", function(self)
+                self:ClearFocus()
+                ApplyCustomAspect()
+            end)
+            controls.customH:SetScript("OnEditFocusLost", ApplyCustomAspect)
+            
+            -- Label control event handlers
+            controls.labelEnableCheck:SetScript("OnClick", function(self)
+                CooldownHighlights:SetLabelEnabled(trackerKey, slotIndex, self:GetChecked())
+                Cooldowns:SaveSettings()
+            end)
+            
+            controls.labelTextBox:SetScript("OnEnterPressed", function(self)
+                self:ClearFocus()
+                CooldownHighlights:SetLabelText(trackerKey, slotIndex, self:GetText())
+                Cooldowns:SaveSettings()
+            end)
+            controls.labelTextBox:SetScript("OnEditFocusLost", function(self)
+                CooldownHighlights:SetLabelText(trackerKey, slotIndex, self:GetText())
+                Cooldowns:SaveSettings()
+            end)
+            
+            controls.labelSizeSlider:SetScript("OnValueChanged", function(self, value)
+                value = math.floor(value)
+                controls.labelSizeValue:SetText(tostring(value))
+                CooldownHighlights:SetLabelFontSize(trackerKey, slotIndex, value)
+                Cooldowns:SaveSettings()
+            end)
+            
+            controls.labelColorBtn:SetScript("OnClick", function()
+                local currentColor = CooldownHighlights:GetLabelColor(trackerKey, slotIndex)
+                local r, g, b, a = currentColor[1] or 1, currentColor[2] or 1, currentColor[3] or 1, currentColor[4] or 1
+                
+                local info = {
+                    swatchFunc = function()
+                        local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+                        local na = ColorPickerFrame:GetColorAlpha() or 1
+                        controls.labelColorBtn:SetBackdropColor(nr, ng, nb, na)
+                        CooldownHighlights:SetLabelColor(trackerKey, slotIndex, {nr, ng, nb, na})
+                        Cooldowns:SaveSettings()
+                    end,
+                    opacityFunc = function()
+                        local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+                        local na = ColorPickerFrame:GetColorAlpha() or 1
+                        controls.labelColorBtn:SetBackdropColor(nr, ng, nb, na)
+                        CooldownHighlights:SetLabelColor(trackerKey, slotIndex, {nr, ng, nb, na})
+                        Cooldowns:SaveSettings()
+                    end,
+                    cancelFunc = function(prev)
+                        controls.labelColorBtn:SetBackdropColor(prev.r, prev.g, prev.b, prev.a or 1)
+                        CooldownHighlights:SetLabelColor(trackerKey, slotIndex, {prev.r, prev.g, prev.b, prev.a or 1})
+                        Cooldowns:SaveSettings()
+                    end,
+                    hasOpacity = true,
+                    opacity = a,
+                    r = r,
+                    g = g,
+                    b = b,
+                }
+                ColorPickerFrame:SetupColorPickerAndShow(info)
+            end)
+            
+            controls.labelOffsetXSlider:SetScript("OnValueChanged", function(self, value)
+                value = math.floor(value)
+                controls.labelOffsetXValue:SetText(tostring(value))
+                CooldownHighlights:SetLabelOffsetX(trackerKey, slotIndex, value)
+                Cooldowns:SaveSettings()
+            end)
+            
+            controls.labelOffsetYSlider:SetScript("OnValueChanged", function(self, value)
+                value = math.floor(value)
+                controls.labelOffsetYValue:SetText(tostring(value))
+                CooldownHighlights:SetLabelOffsetY(trackerKey, slotIndex, value)
+                Cooldowns:SaveSettings()
+            end)
+            
+            -- Hide icon checkbox handler
+            controls.hideCheck:SetScript("OnClick", function(self)
+                CooldownHighlights:SetIconHidden(trackerKey, slotIndex, self:GetChecked())
+                Cooldowns:SaveSettings()
+                -- Refresh the tracker layout
+                Cooldowns.RefreshTrackerLayout(trackerKey)
+            end)
+            
+            -- Cooldown text control handlers
+            controls.cooldownTextSlider:SetScript("OnValueChanged", function(self, value)
+                value = math.floor(value * 10) / 10  -- Round to 1 decimal
+                controls.cooldownTextValue:SetText(string.format("%.1f", value))
+                CooldownHighlights:SetCooldownTextScale(trackerKey, slotIndex, value)
+                Cooldowns:SaveSettings()
+            end)
+            
+            controls.cooldownTextColorBtn:SetScript("OnClick", function()
+                local currentColor = CooldownHighlights:GetCooldownTextColor(trackerKey, slotIndex)
+                local r, g, b = currentColor[1] or 1, currentColor[2] or 1, currentColor[3] or 1
+                
+                local info = {
+                    swatchFunc = function()
+                        local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+                        controls.cooldownTextColorBtn:SetBackdropColor(nr, ng, nb, 1)
+                        CooldownHighlights:SetCooldownTextColor(trackerKey, slotIndex, {nr, ng, nb})
+                        Cooldowns:SaveSettings()
+                    end,
+                    cancelFunc = function(prev)
+                        controls.cooldownTextColorBtn:SetBackdropColor(prev.r, prev.g, prev.b, 1)
+                        CooldownHighlights:SetCooldownTextColor(trackerKey, slotIndex, {prev.r, prev.g, prev.b})
+                        Cooldowns:SaveSettings()
+                    end,
+                    hasOpacity = false,
+                    r = r,
+                    g = g,
+                    b = b,
+                }
+                ColorPickerFrame:SetupColorPickerAndShow(info)
+            end)
+            
+            controls.cooldownTextOffsetXSlider:SetScript("OnValueChanged", function(self, value)
+                value = math.floor(value)
+                controls.cooldownTextOffsetXValue:SetText(tostring(value))
+                CooldownHighlights:SetCooldownTextOffsetX(trackerKey, slotIndex, value)
+                Cooldowns:SaveSettings()
+            end)
+            
+            controls.cooldownTextOffsetYSlider:SetScript("OnValueChanged", function(self, value)
+                value = math.floor(value)
+                controls.cooldownTextOffsetYValue:SetText(tostring(value))
+                CooldownHighlights:SetCooldownTextOffsetY(trackerKey, slotIndex, value)
+                Cooldowns:SaveSettings()
+            end)
+            
+            -- Count text control handlers
+            controls.countTextSlider:SetScript("OnValueChanged", function(self, value)
+                value = math.floor(value * 10) / 10  -- Round to 1 decimal
+                controls.countTextValue:SetText(string.format("%.1f", value))
+                CooldownHighlights:SetCountTextScale(trackerKey, slotIndex, value)
+                Cooldowns:SaveSettings()
+            end)
+            
+            controls.countTextColorBtn:SetScript("OnClick", function()
+                local currentColor = CooldownHighlights:GetCountTextColor(trackerKey, slotIndex)
+                local r, g, b = currentColor[1] or 1, currentColor[2] or 1, currentColor[3] or 1
+                
+                local info = {
+                    swatchFunc = function()
+                        local nr, ng, nb = ColorPickerFrame:GetColorRGB()
+                        controls.countTextColorBtn:SetBackdropColor(nr, ng, nb, 1)
+                        CooldownHighlights:SetCountTextColor(trackerKey, slotIndex, {nr, ng, nb})
+                        Cooldowns:SaveSettings()
+                    end,
+                    cancelFunc = function(prev)
+                        controls.countTextColorBtn:SetBackdropColor(prev.r, prev.g, prev.b, 1)
+                        CooldownHighlights:SetCountTextColor(trackerKey, slotIndex, {prev.r, prev.g, prev.b})
+                        Cooldowns:SaveSettings()
+                    end,
+                    hasOpacity = false,
+                    r = r,
+                    g = g,
+                    b = b,
+                }
+                ColorPickerFrame:SetupColorPickerAndShow(info)
+            end)
+            
+            controls.countTextOffsetXSlider:SetScript("OnValueChanged", function(self, value)
+                value = math.floor(value)
+                controls.countTextOffsetXValue:SetText(tostring(value))
+                CooldownHighlights:SetCountTextOffsetX(trackerKey, slotIndex, value)
+                Cooldowns:SaveSettings()
+            end)
+            
+            controls.countTextOffsetYSlider:SetScript("OnValueChanged", function(self, value)
+                value = math.floor(value)
+                controls.countTextOffsetYValue:SetText(tostring(value))
+                CooldownHighlights:SetCountTextOffsetY(trackerKey, slotIndex, value)
+                Cooldowns:SaveSettings()
+            end)
+        end
+        
+        -- Refresh slot list
+        local function RefreshSlotList()
+            for _, row in ipairs(slotRows) do
+                row:Hide()
+                row:SetParent(nil)
+            end
+            wipe(slotRows)
+            
+            local viewer = _G[viewerName]
+            if not viewer then
+                local noItems = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                noItems:SetPoint("CENTER")
+                noItems:SetText(trackerDisplayName .. " not loaded")
+                noItems:SetTextColor(0.5, 0.5, 0.5)
+                slotRows[1] = noItems
+                scrollChild:SetHeight(90)
+                ShowControls(false)
+                return
+            end
+            
+            -- Use same order as layout (GetOrderedIcons)
+            local icons = GetOrderedIcons(viewer, trackerKey)
+            if #icons == 0 then
+                local noItems = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                noItems:SetPoint("CENTER")
+                noItems:SetText("No cooldowns tracked")
+                noItems:SetTextColor(0.5, 0.5, 0.5)
+                slotRows[1] = noItems
+                scrollChild:SetHeight(90)
+                ShowControls(false)
+                return
+            end
+            
+            local rowY = -3
+            local rowHeight = 21
+            
+            for slotIndex = 1, #icons do
+                local icon = icons[slotIndex]
+                if icon then
+                    local row = CreateFrame("Button", nil, scrollChild)
+                    row:SetPoint("TOPLEFT", 3, rowY)
+                    row:SetPoint("TOPRIGHT", -3, rowY)
+                    row:SetHeight(rowHeight - 2)
+                    
+                    row.bg = row:CreateTexture(nil, "BACKGROUND")
+                    row.bg:SetAllPoints()
+                    row.bg:SetColorTexture(0.2, 0.2, 0.2, 0.3)
+                    
+                    local slotLabel = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    slotLabel:SetPoint("LEFT", 4, 0)
+                    slotLabel:SetText("#" .. slotIndex)
+                    slotLabel:SetTextColor(0.8, 0.8, 0.8)
+                    
+                    local iconPreview = row:CreateTexture(nil, "ARTWORK")
+                    iconPreview:SetPoint("LEFT", 22, 0)
+                    iconPreview:SetSize(18, 18)
+                    iconPreview:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                    local textureObj = icon.Icon or icon.icon
+                    if textureObj then
+                        pcall(function() iconPreview:SetTexture(textureObj:GetTexture()) end)
+                    end
+                    
+                    local isEnabled = CooldownHighlights and CooldownHighlights:IsEnabled(trackerKey, slotIndex)
+                    local enabledIndicator = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    enabledIndicator:SetPoint("LEFT", 45, 0)
+                    enabledIndicator:SetText(isEnabled and "|cff00ff00On|r" or "|cff666666Off|r")
+                    
+                    row.slotIndex = slotIndex
+                    row:SetScript("OnClick", function(self)
+                        selectedSlot = self.slotIndex
+                        for _, r in ipairs(slotRows) do
+                            if r.bg then r.bg:SetColorTexture(0.2, 0.2, 0.2, 0.3) end
+                        end
+                        self.bg:SetColorTexture(0.3, 0.5, 0.3, 0.6)
+                        currentState = "active"
+                        UpdateControlsForSlot(self.slotIndex)
+                    end)
+                    
+                    row:SetScript("OnEnter", function(self)
+                        if selectedSlot ~= self.slotIndex then
+                            self.bg:SetColorTexture(0.25, 0.25, 0.3, 0.5)
+                        end
+                    end)
+                    
+                    row:SetScript("OnLeave", function(self)
+                        if selectedSlot ~= self.slotIndex then
+                            self.bg:SetColorTexture(0.2, 0.2, 0.2, 0.3)
+                        end
+                    end)
+                    
+                    slotRows[#slotRows + 1] = row
+                    rowY = rowY - rowHeight
+                end
+            end
+            
+            
+            -- Update scroll child height based on content
+            local totalHeight = math.max(90, #slotRows * rowHeight + 6)
+            scrollChild:SetHeight(totalHeight)
+            if not selectedSlot and #slotRows > 0 and slotRows[1].slotIndex then
+                slotRows[1]:Click()
+            end
+        end
+        
+        C_Timer.After(0.1, RefreshSlotList)
+        
+        -- Set the refresh button script (button created at top of tab)
+        refreshBtn:SetScript("OnClick", function()
+            selectedSlot = nil
+            RefreshSlotList()
+        end)
+        
+        parent:SetHeight(math.abs(y) + 370)
+    end
     
     -- Build tab content builders
     local tabBuilders = {
@@ -7001,6 +8089,7 @@ function Cooldowns:CreateTrackerPanel(trackerKey)
         visibility = BuildVisibilityTab,
         buffdisplay = BuildBuffDisplayTab,
         highlights = BuildHighlightsTab,
+        cooldownhighlights = BuildCooldownHighlightsTab,
     }
     
     -- Create content frames and tab buttons
@@ -8657,40 +9746,6 @@ function Cooldowns:CreateCustomTrackersPanel()
         controls.labelOffsetYValue:Hide()
         
         -- =====================================================
-        -- Radial Swipe Controls
-        -- =====================================================
-        controls.radialHeader = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        controls.radialHeader:SetPoint("TOPLEFT", 10, -485)
-        controls.radialHeader:SetText("Cooldown Swipe")
-        controls.radialHeader:SetTextColor(1, 0.82, 0)
-        controls.radialHeader:Hide()
-        
-        controls.radialSizeLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        controls.radialSizeLabel:SetPoint("TOPLEFT", 10, -505)
-        controls.radialSizeLabel:SetText("Swipe Size:")
-        controls.radialSizeLabel:SetTextColor(0.8, 0.8, 0.8)
-        controls.radialSizeLabel:Hide()
-        
-        controls.radialSizeInput = CreateFrame("EditBox", nil, controlsPanel, "InputBoxTemplate")
-        controls.radialSizeInput:SetPoint("LEFT", controls.radialSizeLabel, "RIGHT", 5, 0)
-        controls.radialSizeInput:SetSize(50, 20)
-        controls.radialSizeInput:SetAutoFocus(false)
-        controls.radialSizeInput:SetNumeric(true)
-        controls.radialSizeInput:SetMaxLetters(3)
-        controls.radialSizeInput:Hide()
-        
-        controls.showRadialWhenReadyCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
-        controls.showRadialWhenReadyCheck:SetPoint("TOPLEFT", 10, -535)
-        controls.showRadialWhenReadyCheck:SetSize(24, 24)
-        controls.showRadialWhenReadyCheck:Hide()
-        
-        controls.showRadialWhenReadyLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        controls.showRadialWhenReadyLabel:SetPoint("LEFT", controls.showRadialWhenReadyCheck, "RIGHT", 2, 0)
-        controls.showRadialWhenReadyLabel:SetText("Show hexagon when ready")
-        controls.showRadialWhenReadyLabel:SetTextColor(0.9, 0.9, 0.9)
-        controls.showRadialWhenReadyLabel:Hide()
-        
-        -- =====================================================
         -- Per-Icon Text Controls (Cooldown Timer)
         -- =====================================================
         controls.cooldownTextHeader = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -9155,29 +10210,6 @@ function Cooldowns:CreateCustomTrackersPanel()
                 value = math.floor(value)
                 controls.labelOffsetYValue:SetText(tostring(value))
                 CooldownHighlights:SetLabelOffsetY(customTrackerKey, slotIndex, value)
-                Cooldowns:SaveSettings()
-            end)
-            
-            -- Radial swipe control handlers
-            controls.radialSizeInput:SetScript("OnEnterPressed", function(self)
-                self:ClearFocus()
-            end)
-            controls.radialSizeInput:SetScript("OnEditFocusLost", function(self)
-                local value = tonumber(self:GetText())
-                if value then
-                    value = math.max(24, math.min(200, math.floor(value)))  -- Clamp to 24-200
-                    self:SetText(tostring(value))
-                    CooldownHighlights:SetRadialSwipeSize(customTrackerKey, slotIndex, value)
-                    Cooldowns:SaveSettings()
-                else
-                    -- Invalid input, reset to current value
-                    local currentSize = CooldownHighlights:GetRadialSwipeSize(customTrackerKey, slotIndex) or 64
-                    self:SetText(tostring(currentSize))
-                end
-            end)
-            
-            controls.showRadialWhenReadyCheck:SetScript("OnClick", function(self)
-                CooldownHighlights:SetShowRadialWhenReady(customTrackerKey, slotIndex, self:GetChecked())
                 Cooldowns:SaveSettings()
             end)
             

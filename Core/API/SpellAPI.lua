@@ -189,50 +189,37 @@ end
 
 -- ============================================================================
 -- SECRECY CHECKS
--- Note: C_Secrets and Enum.SecrecyLevel added in PTR 2 (Dec 22)
 -- ============================================================================
 
 -- Check if spell cooldown is secret (always/contextual/never)
 function SpellAPI:GetCooldownSecrecy(spellID)
     if not spellID then return nil end
-    if not C_Secrets or not C_Secrets.GetSpellCooldownSecrecy then return nil end
     return C_Secrets.GetSpellCooldownSecrecy(spellID)
 end
 
 -- Check if spell cooldown is currently secret
 function SpellAPI:IsCooldownCurrentlySecret(spellID)
     if not spellID then return false end
-    -- If C_Secrets API not available, assume not secret (older build)
-    if not C_Secrets or not C_Secrets.GetSpellCooldownSecrecy then return false end
-    
     local secrecy = C_Secrets.GetSpellCooldownSecrecy(spellID)
-    -- Use safe API constants from TweaksUI.API
-    local SECRECY = TweaksUI.API.SECRECY_LEVEL
-    
-    if secrecy == SECRECY.NEVER then
+    if secrecy == Enum.SecrecyLevel.NeverSecret then
         return false
-    elseif secrecy == SECRECY.ALWAYS then
+    elseif secrecy == Enum.SecrecyLevel.AlwaysSecret then
         return true
     else
         -- Contextual - check current restriction state
-        if C_Secrets.ShouldSpellCooldownBeSecret then
-            return C_Secrets.ShouldSpellCooldownBeSecret(spellID)
-        end
-        return false  -- Default to not secret if API unavailable
+        return C_Secrets.ShouldSpellCooldownBeSecret(spellID)
     end
 end
 
 -- Check if spell aura is secret
 function SpellAPI:GetAuraSecrecy(spellID)
     if not spellID then return nil end
-    if not C_Secrets or not C_Secrets.GetSpellAuraSecrecy then return nil end
     return C_Secrets.GetSpellAuraSecrecy(spellID)
 end
 
 -- Check if spell cast is secret
 function SpellAPI:GetCastSecrecy(spellID)
     if not spellID then return nil end
-    if not C_Secrets or not C_Secrets.GetSpellCastSecrecy then return nil end
     return C_Secrets.GetSpellCastSecrecy(spellID)
 end
 
