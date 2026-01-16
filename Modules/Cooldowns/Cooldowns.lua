@@ -6011,7 +6011,7 @@ function Cooldowns:CreateTrackerPanel(trackerKey)
         
         -- Controls panel as scroll child (content area)
         local controlsPanel = CreateFrame("Frame", nil, controlsScrollFrame)
-        controlsPanel:SetSize(PANEL_WIDTH - 84, 820)  -- Height for full content
+        controlsPanel:SetSize(PANEL_WIDTH - 84, 850)  -- Height for full content
         controlsScrollFrame:SetScrollChild(controlsPanel)
         
         -- "No Selection" label (on container, not scroll child, so it stays centered)
@@ -6485,6 +6485,46 @@ function Cooldowns:CreateTrackerPanel(trackerKey)
         controls.labelOffsetYValue:SetTextColor(1, 1, 1)
         controls.labelOffsetYValue:Hide()
         
+        -- -- =====================================================
+        -- -- Radial Swipe Controls
+        -- -- =====================================================
+        -- controls.radialSwipeHeader = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        -- controls.radialSwipeHeader:SetPoint("TOPLEFT", 10, -745)
+        -- controls.radialSwipeHeader:SetText("Radial Swipe Animation")
+        -- controls.radialSwipeHeader:SetTextColor(1, 0.82, 0)
+        -- controls.radialSwipeHeader:Hide()
+        
+        -- controls.radialSizeLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.radialSizeLabel:SetPoint("TOPLEFT", 10, -770)
+        -- controls.radialSizeLabel:SetText("Size:")
+        -- controls.radialSizeLabel:SetTextColor(0.8, 0.8, 0.8)
+        -- controls.radialSizeLabel:Hide()
+        
+        -- controls.radialSizeInput = CreateFrame("EditBox", nil, controlsPanel, "InputBoxTemplate")
+        -- controls.radialSizeInput:SetPoint("LEFT", controls.radialSizeLabel, "RIGHT", 8, 0)
+        -- controls.radialSizeInput:SetSize(60, 18)
+        -- controls.radialSizeInput:SetAutoFocus(false)
+        -- controls.radialSizeInput:SetMaxLetters(3)
+        -- controls.radialSizeInput:SetNumeric(true)
+        -- controls.radialSizeInput:Hide()
+        
+        -- controls.radialSizeHelp = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalTiny")
+        -- controls.radialSizeHelp:SetPoint("LEFT", controls.radialSizeInput, "RIGHT", 5, 0)
+        -- controls.radialSizeHelp:SetText("(Leave blank for default)")
+        -- controls.radialSizeHelp:SetTextColor(0.6, 0.6, 0.6)
+        -- controls.radialSizeHelp:Hide()
+        
+        -- controls.showRadialWhenReadyCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        -- controls.showRadialWhenReadyCheck:SetPoint("TOPLEFT", 10, -795)
+        -- controls.showRadialWhenReadyCheck:SetSize(24, 24)
+        -- controls.showRadialWhenReadyCheck:Hide()
+        
+        -- controls.showRadialWhenReadyLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.showRadialWhenReadyLabel:SetPoint("LEFT", controls.showRadialWhenReadyCheck, "RIGHT", 2, 0)
+        -- controls.showRadialWhenReadyLabel:SetText("Show Full Swipe When Ready")
+        -- controls.showRadialWhenReadyLabel:SetTextColor(0.9, 0.9, 0.9)
+        -- controls.showRadialWhenReadyLabel:Hide()
+        
         -- Helper to show/hide all controls
         local function ShowControls(show)
             noSelectionLabel:SetShown(not show)
@@ -6791,6 +6831,32 @@ function Cooldowns:CreateTrackerPanel(trackerKey)
                 BuffHighlights:SetLabelOffsetY(slotIndex, value)
                 Cooldowns:SaveSettings()
             end)
+            
+            -- Radial swipe control handlers
+            -- controls.radialSizeInput:SetScript("OnEnterPressed", function(self)
+            --     self:ClearFocus()
+            --     local text = self:GetText()
+            --     local size = text == "" and nil or tonumber(text)
+            --     if CooldownHighlights and CooldownHighlights.SetRadialSwipeSize then
+            --         CooldownHighlights:SetRadialSwipeSize(customTrackerKey, slotIndex, size)
+            --         Cooldowns:SaveSettings()
+            --     end
+            -- end)
+            -- controls.radialSizeInput:SetScript("OnEditFocusLost", function(self)
+            --     local text = self:GetText()
+            --     local size = text == "" and nil or tonumber(text)
+            --     if CooldownHighlights and CooldownHighlights.SetRadialSwipeSize then
+            --         CooldownHighlights:SetRadialSwipeSize(customTrackerKey, slotIndex, size)
+            --         Cooldowns:SaveSettings()
+            --     end
+            -- end)
+            
+            -- controls.showRadialWhenReadyCheck:SetScript("OnClick", function(self)
+            --     if CooldownHighlights and CooldownHighlights.SetShowRadialWhenReady then
+            --         CooldownHighlights:SetShowRadialWhenReady(customTrackerKey, slotIndex, self:GetChecked())
+            --         Cooldowns:SaveSettings()
+            --     end
+            -- end)
             
             -- Hide icon checkbox handler
             controls.hideCheck:SetScript("OnClick", function(self)
@@ -7110,13 +7176,340 @@ function Cooldowns:CreateTrackerPanel(trackerKey)
         
         -- Controls panel as scroll child (content area)
         local controlsPanel = CreateFrame("Frame", nil, controlsScrollFrame)
-        controlsPanel:SetSize(PANEL_WIDTH - 84, 820)  -- Height for full content
+        controlsPanel:SetSize(PANEL_WIDTH - 84, 850)  -- Height for full content
         controlsScrollFrame:SetScrollChild(controlsPanel)
         
         -- "No Selection" label (on container, not scroll child, so it stays centered)
         local noSelectionLabel = controlsContainer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         noSelectionLabel:SetPoint("CENTER")
         noSelectionLabel:SetText("Select a cooldown slot above")
+        noSelectionLabel:SetTextColor(0.5, 0.5, 0.5)
+        
+        -- -- All controls
+        -- local controls = {}
+        
+        -- -- Icon preview at top
+        -- controls.iconPreview = controlsPanel:CreateTexture(nil, "ARTWORK")
+        -- controls.iconPreview:SetPoint("TOP", 0, -10)
+        -- controls.iconPreview:SetSize(48, 48)
+        -- controls.iconPreview:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        -- controls.iconPreview:Hide()
+        
+        -- controls.header = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        -- controls.header:SetPoint("TOP", 0, -65)
+        -- controls.header:SetText("Slot #?")
+        -- controls.header:Hide()
+        
+        -- -- Enable checkbox
+        -- controls.enableCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        -- controls.enableCheck:SetPoint("TOPLEFT", 10, -90)
+        -- controls.enableCheck:SetSize(24, 24)
+        -- controls.enableCheck:Hide()
+        
+        -- controls.enableLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.enableLabel:SetPoint("LEFT", controls.enableCheck, "RIGHT", 2, 0)
+        -- controls.enableLabel:SetText("Enable Highlight")
+        -- controls.enableLabel:SetTextColor(0.9, 0.9, 0.9)
+        -- controls.enableLabel:Hide()
+        
+        -- -- Hide icon checkbox (right side of enable checkbox)
+        -- controls.hideCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        -- controls.hideCheck:SetPoint("LEFT", controls.enableLabel, "RIGHT", 30, 0)
+        -- controls.hideCheck:SetSize(24, 24)
+        -- controls.hideCheck:Hide()
+        
+        -- controls.hideLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.hideLabel:SetPoint("LEFT", controls.hideCheck, "RIGHT", 2, 0)
+        -- controls.hideLabel:SetText("Hide Icon")
+        -- controls.hideLabel:SetTextColor(0.9, 0.9, 0.9)
+        -- controls.hideLabel:Hide()
+        
+        -- -- State buttons (active/inactive)
+        -- controls.activeBtn = CreateFrame("Button", nil, controlsPanel, "UIPanelButtonTemplate")
+        -- controls.activeBtn:SetPoint("TOPLEFT", 10, -120)
+        -- controls.activeBtn:SetSize(60, 22)
+        -- controls.activeBtn:SetText("Ready")
+        -- controls.activeBtn:Hide()
+        
+        -- controls.inactiveBtn = CreateFrame("Button", nil, controlsPanel, "UIPanelButtonTemplate")
+        -- controls.inactiveBtn:SetPoint("LEFT", controls.activeBtn, "RIGHT", 5, 0)
+        -- controls.inactiveBtn:SetSize(80, 22)
+        -- controls.inactiveBtn:SetText("On Cooldown")
+        -- controls.inactiveBtn:Hide()
+        
+        -- -- Show checkbox
+        -- controls.showCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        -- controls.showCheck:SetPoint("TOPLEFT", 10, -150)
+        -- controls.showCheck:SetSize(24, 24)
+        -- controls.showCheck:Hide()
+        
+        -- controls.showLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.showLabel:SetPoint("LEFT", controls.showCheck, "RIGHT", 2, 0)
+        -- controls.showLabel:SetText("Show when ability is Ready")
+        -- controls.showLabel:SetTextColor(0.9, 0.9, 0.9)
+        -- controls.showLabel:Hide()
+        
+        -- -- Size slider
+        -- controls.sizeLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.sizeLabel:SetPoint("TOPLEFT", 10, -185)
+        -- controls.sizeLabel:SetText("Size:")
+        -- controls.sizeLabel:SetTextColor(0.8, 0.8, 0.8)
+        -- controls.sizeLabel:Hide()
+        
+        -- controls.sizeSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        -- controls.sizeSlider:SetPoint("LEFT", controls.sizeLabel, "RIGHT", 10, 0)
+        -- controls.sizeSlider:SetSize(150, 16)
+        -- controls.sizeSlider:SetMinMaxValues(16, 128)
+        -- controls.sizeSlider:SetValueStep(1)
+        -- controls.sizeSlider:SetObeyStepOnDrag(true)
+        -- controls.sizeSlider.Low:SetText("")
+        -- controls.sizeSlider.High:SetText("")
+        -- controls.sizeSlider.Text:SetText("")
+        -- controls.sizeSlider:Hide()
+        
+        -- controls.sizeValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.sizeValue:SetPoint("LEFT", controls.sizeSlider, "RIGHT", 8, 0)
+        -- controls.sizeValue:SetTextColor(1, 1, 1)
+        -- controls.sizeValue:Hide()
+        
+        -- -- Opacity slider
+        -- controls.opacityLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.opacityLabel:SetPoint("TOPLEFT", 10, -215)
+        -- controls.opacityLabel:SetText("Opacity:")
+        -- controls.opacityLabel:SetTextColor(0.8, 0.8, 0.8)
+        -- controls.opacityLabel:Hide()
+        
+        -- controls.opacitySlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        -- controls.opacitySlider:SetPoint("LEFT", controls.opacityLabel, "RIGHT", 5, 0)
+        -- controls.opacitySlider:SetSize(150, 16)
+        -- controls.opacitySlider:SetMinMaxValues(0, 1)
+        -- controls.opacitySlider:SetValueStep(0.05)
+        -- controls.opacitySlider:SetObeyStepOnDrag(true)
+        -- controls.opacitySlider.Low:SetText("")
+        -- controls.opacitySlider.High:SetText("")
+        -- controls.opacitySlider.Text:SetText("")
+        -- controls.opacitySlider:Hide()
+        
+        -- controls.opacityValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.opacityValue:SetPoint("LEFT", controls.opacitySlider, "RIGHT", 8, 0)
+        -- controls.opacityValue:SetTextColor(1, 1, 1)
+        -- controls.opacityValue:Hide()
+        
+        -- -- Desaturate checkbox
+        -- controls.desatCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        -- controls.desatCheck:SetPoint("TOPLEFT", 10, -175)
+        -- controls.desatCheck:SetSize(24, 24)
+        -- controls.desatCheck:Hide()
+        
+        -- controls.desatLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.desatLabel:SetPoint("LEFT", controls.desatCheck, "RIGHT", 2, 0)
+        -- controls.desatLabel:SetText("Desaturate (grayscale)")
+        -- controls.desatLabel:SetTextColor(0.8, 0.8, 0.8)
+        -- controls.desatLabel:Hide()
+        
+        -- -- Aspect ratio dropdown
+        -- controls.aspectLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.aspectLabel:SetPoint("TOPLEFT", 10, -205)
+        -- controls.aspectLabel:SetText("Aspect Ratio:")
+        -- controls.aspectLabel:SetTextColor(0.8, 0.8, 0.8)
+        -- controls.aspectLabel:Hide()
+        
+        -- controls.aspectDropdown = CreateFrame("Frame", nil, controlsPanel, "UIDropDownMenuTemplate")
+        -- controls.aspectDropdown:SetPoint("TOPLEFT", 60, -200)
+        -- UIDropDownMenu_SetWidth(controls.aspectDropdown, 100)
+        -- controls.aspectDropdown:Hide()
+        
+        -- -- Custom aspect ratio inputs
+        -- controls.customLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.customLabel:SetPoint("TOPLEFT", 10, -235)
+        -- controls.customLabel:SetText("Custom W:")
+        -- controls.customLabel:SetTextColor(0.7, 0.7, 0.7)
+        -- controls.customLabel:Hide()
+        
+        -- controls.customW = CreateFrame("EditBox", nil, controlsPanel, "InputBoxTemplate")
+        -- controls.customW:SetPoint("LEFT", controls.customLabel, "RIGHT", 2, 0)
+        -- controls.customW:SetSize(30, 18)
+        -- controls.customW:SetAutoFocus(false)
+        -- controls.customW:SetNumeric(true)
+        -- controls.customW:SetMaxLetters(3)
+        -- controls.customW:Hide()
+        
+        -- controls.customSep = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.customSep:SetPoint("LEFT", controls.customW, "RIGHT", 4, 0)
+        -- controls.customSep:SetText("H:")
+        -- controls.customSep:SetTextColor(0.7, 0.7, 0.7)
+        -- controls.customSep:Hide()
+        
+        -- controls.customH = CreateFrame("EditBox", nil, controlsPanel, "InputBoxTemplate")
+        -- controls.customH:SetPoint("LEFT", controls.customSep, "RIGHT", 2, 0)
+        -- controls.customH:SetSize(30, 18)
+        -- controls.customH:SetAutoFocus(false)
+        -- controls.customH:SetNumeric(true)
+        -- controls.customH:SetMaxLetters(3)
+        -- controls.customH:Hide()
+        
+        -- -- =====================================================
+        -- -- Custom Label Controls (Accessibility feature)
+        -- -- =====================================================
+        -- controls.labelHeader = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        -- controls.labelHeader:SetPoint("TOPLEFT", 10, -305)
+        -- controls.labelHeader:SetText("Custom Label (Accessibility)")
+        -- controls.labelHeader:SetTextColor(1, 0.82, 0)
+        -- controls.labelHeader:Hide()
+        
+        -- controls.labelEnableCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        -- controls.labelEnableCheck:SetPoint("TOPLEFT", 10, -325)
+        -- controls.labelEnableCheck:SetSize(24, 24)
+        -- controls.labelEnableCheck:Hide()
+        
+        -- controls.labelEnableLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.labelEnableLabel:SetPoint("LEFT", controls.labelEnableCheck, "RIGHT", 2, 0)
+        -- controls.labelEnableLabel:SetText("Show Custom Label")
+        -- controls.labelEnableLabel:SetTextColor(0.9, 0.9, 0.9)
+        -- controls.labelEnableLabel:Hide()
+        
+        -- controls.labelTextLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.labelTextLabel:SetPoint("TOPLEFT", 10, -355)
+        -- controls.labelTextLabel:SetText("Text:")
+        -- controls.labelTextLabel:SetTextColor(0.8, 0.8, 0.8)
+        -- controls.labelTextLabel:Hide()
+        
+        -- controls.labelTextBox = CreateFrame("EditBox", nil, controlsPanel, "InputBoxTemplate")
+        -- controls.labelTextBox:SetPoint("LEFT", controls.labelTextLabel, "RIGHT", 8, 0)
+        -- controls.labelTextBox:SetSize(120, 18)
+        -- controls.labelTextBox:SetAutoFocus(false)
+        -- controls.labelTextBox:SetMaxLetters(20)
+        -- controls.labelTextBox:Hide()
+        
+        -- controls.labelSizeLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.labelSizeLabel:SetPoint("TOPLEFT", 10, -380)
+        -- controls.labelSizeLabel:SetText("Font Size:")
+        -- controls.labelSizeLabel:SetTextColor(0.8, 0.8, 0.8)
+        -- controls.labelSizeLabel:Hide()
+        
+        -- controls.labelSizeSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        -- controls.labelSizeSlider:SetPoint("LEFT", controls.labelSizeLabel, "RIGHT", 5, 0)
+        -- controls.labelSizeSlider:SetSize(80, 16)
+        -- controls.labelSizeSlider:SetMinMaxValues(8, 32)
+        -- controls.labelSizeSlider:SetValueStep(1)
+        -- controls.labelSizeSlider:SetObeyStepOnDrag(true)
+        -- controls.labelSizeSlider.Low:SetText("")
+        -- controls.labelSizeSlider.High:SetText("")
+        -- controls.labelSizeSlider.Text:SetText("")
+        -- controls.labelSizeSlider:Hide()
+        
+        -- controls.labelSizeValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.labelSizeValue:SetPoint("LEFT", controls.labelSizeSlider, "RIGHT", 8, 0)
+        -- controls.labelSizeValue:SetTextColor(1, 1, 1)
+        -- controls.labelSizeValue:Hide()
+        
+        -- controls.labelColorLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.labelColorLabel:SetPoint("TOPLEFT", 10, -405)
+        -- controls.labelColorLabel:SetText("Color:")
+        -- controls.labelColorLabel:SetTextColor(0.8, 0.8, 0.8)
+        -- controls.labelColorLabel:Hide()
+        
+        -- controls.labelColorBtn = CreateFrame("Button", nil, controlsPanel, "BackdropTemplate")
+        -- controls.labelColorBtn:SetPoint("LEFT", controls.labelColorLabel, "RIGHT", 8, 0)
+        -- controls.labelColorBtn:SetSize(20, 20)
+        -- controls.labelColorBtn:SetBackdrop({ 
+        --     bgFile = "Interface\\BUTTONS\\WHITE8X8", 
+        --     edgeFile = "Interface\\BUTTONS\\WHITE8X8", 
+        --     edgeSize = 1 
+        -- })
+        -- controls.labelColorBtn:SetBackdropColor(1, 1, 1, 1)
+        -- controls.labelColorBtn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+        -- controls.labelColorBtn:Hide()
+        
+        -- controls.labelOffsetLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.labelOffsetLabel:SetPoint("TOPLEFT", 10, -430)
+        -- controls.labelOffsetLabel:SetText("Offset X:")
+        -- controls.labelOffsetLabel:SetTextColor(0.8, 0.8, 0.8)
+        -- controls.labelOffsetLabel:Hide()
+        
+        -- controls.labelOffsetXSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        -- controls.labelOffsetXSlider:SetPoint("LEFT", controls.labelOffsetLabel, "RIGHT", 5, 0)
+        -- controls.labelOffsetXSlider:SetSize(100, 16)
+        -- controls.labelOffsetXSlider:SetMinMaxValues(-100, 100)
+        -- controls.labelOffsetXSlider:SetValueStep(1)
+        -- controls.labelOffsetXSlider:SetObeyStepOnDrag(true)
+        -- controls.labelOffsetXSlider.Low:SetText("")
+        -- controls.labelOffsetXSlider.High:SetText("")
+        -- controls.labelOffsetXSlider.Text:SetText("")
+        -- controls.labelOffsetXSlider:Hide()
+        
+        -- controls.labelOffsetXValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.labelOffsetXValue:SetPoint("LEFT", controls.labelOffsetXSlider, "RIGHT", 5, 0)
+        -- controls.labelOffsetXValue:SetTextColor(1, 1, 1)
+        -- controls.labelOffsetXValue:Hide()
+        
+        -- controls.labelOffsetYLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.labelOffsetYLabel:SetPoint("TOPLEFT", 10, -455)
+        -- controls.labelOffsetYLabel:SetText("Offset Y:")
+        -- controls.labelOffsetYLabel:SetTextColor(0.8, 0.8, 0.8)
+        -- controls.labelOffsetYLabel:Hide()
+        
+        -- controls.labelOffsetYSlider = CreateFrame("Slider", nil, controlsPanel, "OptionsSliderTemplate")
+        -- controls.labelOffsetYSlider:SetPoint("LEFT", controls.labelOffsetYLabel, "RIGHT", 5, 0)
+        -- controls.labelOffsetYSlider:SetSize(100, 16)
+        -- controls.labelOffsetYSlider:SetMinMaxValues(-100, 100)
+        -- controls.labelOffsetYSlider:SetValueStep(1)
+        -- controls.labelOffsetYSlider:SetObeyStepOnDrag(true)
+        -- controls.labelOffsetYSlider.Low:SetText("")
+        -- controls.labelOffsetYSlider.High:SetText("")
+        -- controls.labelOffsetYSlider.Text:SetText("")
+        -- controls.labelOffsetYSlider:Hide()
+        
+        -- controls.labelOffsetYValue = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.labelOffsetYValue:SetPoint("LEFT", controls.labelOffsetYSlider, "RIGHT", 5, 0)
+        -- controls.labelOffsetYValue:SetTextColor(1, 1, 1)
+        -- controls.labelOffsetYValue:Hide()
+        
+        -- -- =====================================================
+        -- -- Radial Swipe Controls
+        -- -- =====================================================
+        -- controls.radialSwipeHeader = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        -- controls.radialSwipeHeader:SetPoint("TOPLEFT", 10, -485)
+        -- controls.radialSwipeHeader:SetText("Radial Swipe Animation")
+        -- controls.radialSwipeHeader:SetTextColor(1, 0.82, 0)
+        -- controls.radialSwipeHeader:Hide()
+        
+        -- controls.radialSizeLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.radialSizeLabel:SetPoint("TOPLEFT", 10, -510)
+        -- controls.radialSizeLabel:SetText("Size:")
+        -- controls.radialSizeLabel:SetTextColor(0.8, 0.8, 0.8)
+        -- controls.radialSizeLabel:Hide()
+        
+        -- controls.radialSizeInput = CreateFrame("EditBox", nil, controlsPanel, "InputBoxTemplate")
+        -- controls.radialSizeInput:SetPoint("LEFT", controls.radialSizeLabel, "RIGHT", 8, 0)
+        -- controls.radialSizeInput:SetSize(60, 18)
+        -- controls.radialSizeInput:SetAutoFocus(false)
+        -- controls.radialSizeInput:SetMaxLetters(3)
+        -- controls.radialSizeInput:SetNumeric(true)
+        -- controls.radialSizeInput:Hide()
+        
+        -- controls.radialSizeHelp = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalTiny")
+        -- controls.radialSizeHelp:SetPoint("LEFT", controls.radialSizeInput, "RIGHT", 5, 0)
+        -- controls.radialSizeHelp:SetText("(Leave blank for default)")
+        -- controls.radialSizeHelp:SetTextColor(0.6, 0.6, 0.6)
+        -- controls.radialSizeHelp:Hide()
+        
+        -- controls.showRadialWhenReadyCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        -- controls.showRadialWhenReadyCheck:SetPoint("TOPLEFT", 10, -535)
+        -- controls.showRadialWhenReadyCheck:SetSize(24, 24)
+        -- controls.showRadialWhenReadyCheck:Hide()
+        
+        -- controls.showRadialWhenReadyLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        -- controls.showRadialWhenReadyLabel:SetPoint("LEFT", controls.showRadialWhenReadyCheck, "RIGHT", 2, 0)
+        -- controls.showRadialWhenReadyLabel:SetText("Show Full Swipe When Ready")
+        -- controls.showRadialWhenReadyLabel:SetTextColor(0.9, 0.9, 0.9)
+        -- controls.showRadialWhenReadyLabel:Hide()
+        
+        -- -- =====================================================
+        -- -- Per-Icon Text Controls (Cooldown Timer)
+        -- -- =====================================================
+        -- controls.cooldownTextHeader = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        -- controls.cooldownTextHeader:SetPoint("TOPLEFT", 200, -305)
         noSelectionLabel:SetTextColor(0.5, 0.5, 0.5)
         
         -- All controls
@@ -7722,6 +8115,17 @@ function Cooldowns:CreateTrackerPanel(trackerKey)
             controls.labelOffsetYSlider:SetValue(labelOffsetY or 0)
             controls.labelOffsetYValue:SetText(tostring(labelOffsetY or 0))
             
+            -- Radial swipe settings (state-independent)
+            -- local radialSize = CooldownHighlights.GetRadialSwipeSize and CooldownHighlights:GetRadialSwipeSize(trackerKey, slotIndex)
+            -- local showRadialWhenReady = CooldownHighlights.GetShowRadialWhenReady and CooldownHighlights:GetShowRadialWhenReady(trackerKey, slotIndex)
+
+            -- if radialSize then
+            --     controls.radialSizeInput:SetText(tostring(radialSize))
+            -- else
+            --     controls.radialSizeInput:SetText("")
+            -- end
+            -- controls.showRadialWhenReadyCheck:SetChecked(showRadialWhenReady or false)
+            
             -- Initialize aspect dropdown
             UIDropDownMenu_Initialize(controls.aspectDropdown, function(self, level)
                 for _, opt in ipairs(ASPECT_OPTIONS) do
@@ -7876,6 +8280,32 @@ function Cooldowns:CreateTrackerPanel(trackerKey)
                 CooldownHighlights:SetLabelOffsetY(trackerKey, slotIndex, value)
                 Cooldowns:SaveSettings()
             end)
+            
+            -- -- Radial swipe control handlers
+            -- controls.radialSizeInput:SetScript("OnEnterPressed", function(self)
+            --     self:ClearFocus()
+            --     local text = self:GetText()
+            --     local size = text == "" and nil or tonumber(text)
+            --     if CooldownHighlights and CooldownHighlights.SetRadialSwipeSize then
+            --         CooldownHighlights:SetRadialSwipeSize(trackerKey, slotIndex, size)
+            --         Cooldowns:SaveSettings()
+            --     end
+            -- end)
+            -- controls.radialSizeInput:SetScript("OnEditFocusLost", function(self)
+            --     local text = self:GetText()
+            --     local size = text == "" and nil or tonumber(text)
+            --     if CooldownHighlights and CooldownHighlights.SetRadialSwipeSize then
+            --         CooldownHighlights:SetRadialSwipeSize(trackerKey, slotIndex, size)
+            --         Cooldowns:SaveSettings()
+            --     end
+            -- end)
+            
+            -- controls.showRadialWhenReadyCheck:SetScript("OnClick", function(self)
+            --     if CooldownHighlights and CooldownHighlights.SetShowRadialWhenReady then
+            --         CooldownHighlights:SetShowRadialWhenReady(trackerKey, slotIndex, self:GetChecked())
+            --         Cooldowns:SaveSettings()
+            --     end
+            -- end)
             
             -- Hide icon checkbox handler
             controls.hideCheck:SetScript("OnClick", function(self)
@@ -9471,7 +9901,7 @@ function Cooldowns:CreateCustomTrackersPanel()
         
         -- Controls panel as scroll child (content area)
         local controlsPanel = CreateFrame("Frame", nil, controlsScrollFrame)
-        controlsPanel:SetSize(PANEL_WIDTH - 84, 820)  -- Height for full content
+        controlsPanel:SetSize(PANEL_WIDTH - 84, 850)  -- Height for full content
         controlsScrollFrame:SetScrollChild(controlsPanel)
         
         -- "No Selection" label (on container, not scroll child, so it stays centered)
@@ -9756,6 +10186,46 @@ function Cooldowns:CreateCustomTrackersPanel()
         controls.labelOffsetYValue:SetPoint("LEFT", controls.labelOffsetYSlider, "RIGHT", 5, 0)
         controls.labelOffsetYValue:SetTextColor(1, 1, 1)
         controls.labelOffsetYValue:Hide()
+        
+        -- =====================================================
+        -- Radial Swipe Controls
+        -- =====================================================
+        controls.radialSwipeHeader = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        controls.radialSwipeHeader:SetPoint("TOPLEFT", 10, -485)
+        controls.radialSwipeHeader:SetText("Radial Swipe Animation")
+        controls.radialSwipeHeader:SetTextColor(1, 0.82, 0)
+        controls.radialSwipeHeader:Hide()
+        
+        controls.radialSizeLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.radialSizeLabel:SetPoint("TOPLEFT", 10, -510)
+        controls.radialSizeLabel:SetText("Size:")
+        controls.radialSizeLabel:SetTextColor(0.8, 0.8, 0.8)
+        controls.radialSizeLabel:Hide()
+        
+        controls.radialSizeInput = CreateFrame("EditBox", nil, controlsPanel, "InputBoxTemplate")
+        controls.radialSizeInput:SetPoint("LEFT", controls.radialSizeLabel, "RIGHT", 8, 0)
+        controls.radialSizeInput:SetSize(60, 18)
+        controls.radialSizeInput:SetAutoFocus(false)
+        controls.radialSizeInput:SetMaxLetters(3)
+        controls.radialSizeInput:SetNumeric(true)
+        controls.radialSizeInput:Hide()
+        
+        controls.radialSizeHelp = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalTiny")
+        controls.radialSizeHelp:SetPoint("LEFT", controls.radialSizeInput, "RIGHT", 5, 0)
+        controls.radialSizeHelp:SetText("(Leave blank for default)")
+        controls.radialSizeHelp:SetTextColor(0.6, 0.6, 0.6)
+        controls.radialSizeHelp:Hide()
+        
+        controls.showRadialWhenReadyCheck = CreateFrame("CheckButton", nil, controlsPanel, "UICheckButtonTemplate")
+        controls.showRadialWhenReadyCheck:SetPoint("TOPLEFT", 10, -535)
+        controls.showRadialWhenReadyCheck:SetSize(24, 24)
+        controls.showRadialWhenReadyCheck:Hide()
+        
+        controls.showRadialWhenReadyLabel = controlsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        controls.showRadialWhenReadyLabel:SetPoint("LEFT", controls.showRadialWhenReadyCheck, "RIGHT", 2, 0)
+        controls.showRadialWhenReadyLabel:SetText("Show Full Swipe When Ready")
+        controls.showRadialWhenReadyLabel:SetTextColor(0.9, 0.9, 0.9)
+        controls.showRadialWhenReadyLabel:Hide()
         
         -- =====================================================
         -- Per-Icon Text Controls (Cooldown Timer)
@@ -10073,6 +10543,17 @@ function Cooldowns:CreateCustomTrackersPanel()
             controls.labelOffsetYSlider:SetValue(labelOffsetY or 0)
             controls.labelOffsetYValue:SetText(tostring(labelOffsetY or 0))
             
+            -- Radial swipe settings (state-independent)
+            local radialSize = CooldownHighlights.GetRadialSwipeSize and CooldownHighlights:GetRadialSwipeSize(customTrackerKey, slotIndex)
+            local showRadialWhenReady = CooldownHighlights.GetShowRadialWhenReady and CooldownHighlights:GetShowRadialWhenReady(customTrackerKey, slotIndex)
+            
+            if radialSize then
+                controls.radialSizeInput:SetText(tostring(radialSize))
+            else
+                controls.radialSizeInput:SetText("")
+            end
+            controls.showRadialWhenReadyCheck:SetChecked(showRadialWhenReady or false)
+            
             UIDropDownMenu_Initialize(controls.aspectDropdown, function(self, level)
                 for _, opt in ipairs(ASPECT_OPTIONS) do
                     local info = UIDropDownMenu_CreateInfo()
@@ -10222,6 +10703,28 @@ function Cooldowns:CreateCustomTrackersPanel()
                 value = math.floor(value)
                 controls.labelOffsetYValue:SetText(tostring(value))
                 CooldownHighlights:SetLabelOffsetY(customTrackerKey, slotIndex, value)
+                Cooldowns:SaveSettings()
+            end)
+            
+            controls.radialSizeInput:SetScript("OnEnterPressed", function(self)
+                self:ClearFocus()
+            end)
+            controls.radialSizeInput:SetScript("OnEditFocusLost", function(self)
+                local value = tonumber(self:GetText())
+                if value then
+                    value = math.max(24, math.min(200, math.floor(value)))  -- Clamp to 24-200
+                    self:SetText(tostring(value))
+                    CooldownHighlights:SetRadialSwipeSize(customTrackerKey, slotIndex, value)
+                    Cooldowns:SaveSettings()
+                else
+                    -- Invalid input, reset to current value
+                    local currentSize = CooldownHighlights:GetRadialSwipeSize(customTrackerKey, slotIndex) or 64
+                    self:SetText(tostring(currentSize))
+                end
+            end)
+            
+            controls.showRadialWhenReadyCheck:SetScript("OnClick", function(self)
+                CooldownHighlights:SetShowRadialWhenReady(customTrackerKey, slotIndex, self:GetChecked())
                 Cooldowns:SaveSettings()
             end)
             
